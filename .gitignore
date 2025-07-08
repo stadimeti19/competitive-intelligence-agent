@@ -1,0 +1,16 @@
+# virtual environment
+code_assistant_env/
+
+# api key file
+OAI_CONFIG_LIST
+
+# python cache files
+__pycache__/
+*.pyc
+*.ipynb_checkpoints/
+
+# streamlit cache
+.streamlit/
+
+# coding directory autogen
+coding/

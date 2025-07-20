@@ -9,10 +9,20 @@ from io import StringIO
 import os
 import streamlit as st
 import base64
-from contextlib import redirect_stdout # to capture print outputs
+from contextlib import redirect_stdout
 import requests
 from bs4 import BeautifulSoup
 import json
+import sys
+sys.path.append('coding')
+from ci_data_collector import (
+    duckduckgo_search, 
+    get_wikipedia_info, 
+    scrape_website, 
+    collect_comprehensive_ci_data,
+    collect_netflix_competitors,
+    collect_generic_competitors
+)
 
 # autogen configuration
 try:
@@ -31,12 +41,18 @@ ci_analyst = autogen.AssistantAgent(
     name="ci_analyst",
     system_message="""You are a competitive intelligence analyst. Your role is to:
     1. Understand the user's request (company or idea)
-    2. Formulate a research plan
-    3. Delegate data collection tasks
+    2. Formulate a research plan using free tools (DuckDuckGo search, Wikipedia API, web scraping)
+    3. Delegate data collection tasks to the data_collector agent
     4. Synthesize findings into actionable insights
-    5. Generate comprehensive reports with clear recommendations""",
+    5. Generate comprehensive reports with clear recommendations
+    
+    When planning research, specify which free tools to use:
+    - duckduckgo_search() for competitor discovery
+    - get_wikipedia_info() for company background
+    - scrape_website() for detailed competitor data
+    - collect_comprehensive_ci_data() for complete analysis""",
     llm_config={
-        "cache_seed": None, # set to None for fresh runs in UI, or a number for reproducibility
+        "cache_seed": None,
         "config_list": config_list,
         "temperature": 0.1,
     },
@@ -47,18 +63,34 @@ os.makedirs(coding_work_dir, exist_ok=True) # create directory if it doesn't exi
 
 data_collector = autogen.UserProxyAgent(
     name="data_collector",
-    human_input_mode="NEVER", # set to "ALWAYS" for manual approval in terminal
-    max_consecutive_auto_reply=10,
+    human_input_mode="NEVER",
+    max_consecutive_auto_reply=5,
     is_termination_msg=lambda x: x.get("content", "").rstrip().endswith("TERMINATE"),
     code_execution_config={
         "executor": LocalCommandLineCodeExecutor(work_dir=coding_work_dir),
     },
-    system_message="""You are a data collection specialist. You can:
-    - Perform web searches and scraping
-    - Call APIs for company data
-    - Extract competitor information
-    - Gather pricing and feature data
-    - Analyze market positioning""",
+    system_message="""You are a data collection specialist with access to free tools. You MUST execute code immediately when asked to collect data. Available functions:
+
+1. duckduckgo_search(query) - Free web search for competitor discovery
+2. get_wikipedia_info(company_name) - Free company background info
+3. scrape_website(url) - Free web scraping for competitor data
+4. collect_comprehensive_ci_data(company_name, industry) - Complete CI data collection
+5. collect_netflix_competitors() - Netflix-specific analysis
+6. collect_generic_competitors(company_name, industry) - Generic competitor analysis
+
+When asked to collect data, immediately call these functions and save results to CSV files. Do not just discuss the plan - EXECUTE the data collection.""",
+)
+
+# Register the free tool functions with the data collector agent
+data_collector.register_function(
+    function_map={
+        "duckduckgo_search": duckduckgo_search,
+        "get_wikipedia_info": get_wikipedia_info,
+        "scrape_website": scrape_website,
+        "collect_comprehensive_ci_data": collect_comprehensive_ci_data,
+        "collect_netflix_competitors": collect_netflix_competitors,
+        "collect_generic_competitors": collect_generic_competitors,
+    }
 )
 
 # CI message generator for comprehensive reports
@@ -89,28 +121,31 @@ def run_ci_analysis(company_input, industry, target_audience, key_features, anal
         # task 1) research planning
         planning_result = data_collector.initiate_chat(
             ci_analyst,
-            message=f"""Analyze this request and create a research plan:
+            message=f"""Analyze this request and create a research plan using free tools:
             Company/Idea: {company_input}
             Industry: {industry}
             Target Audience: {target_audience}
             Key Features: {key_features}
             Analysis Type: {analysis_type}
             
-            Create a step-by-step plan for competitive intelligence research.""",
+            Create a step-by-step plan using:
+            - duckduckgo_search() for competitor discovery
+            - get_wikipedia_info() for company background
+            - scrape_website() for detailed competitor data
+            - collect_comprehensive_ci_data() for complete analysis""",
             summary_method="reflection_with_llm",
         )
         
         # task 2) data collection and analysis
         data_collector.send(
             recipient=ci_analyst,
-            message=f"""Execute the research plan. Focus on:
-            1. Identifying direct competitors for '{company_input}'
-            2. Gathering product features and pricing information
-            3. Analyzing market positioning and differentiation
-            4. Collecting customer reviews and sentiment data
-            5. Creating visualizations and data summaries
+            message=f"""Execute the research plan immediately using free tools:
+            1. Use collect_comprehensive_ci_data('{company_input}', '{industry}') for complete analysis
+            2. Use duckduckgo_search('competitors of {company_input} {industry}') for competitor discovery
+            3. Use get_wikipedia_info('{company_input}') for company background
+            4. Save all structured data to 'ci_analysis_data.csv' and generate plots
             
-            Save all structured data to 'ci_analysis_data.csv' and generate plots.""",
+            IMPORTANT: Execute these functions immediately, do not just discuss the plan.""",
         )
         
         # task 3) report generation

@@ -1,6 +1,6 @@
 # Competitive Intelligence Assistant
 
-A powerful competitive intelligence tool built with AutoGen and Streamlit that performs comprehensive market analysis and competitor research.
+A powerful competitive intelligence agent built with AutoGen and Streamlit that performs comprehensive market analysis and competitor research.
 
 ## Features
 

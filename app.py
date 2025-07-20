@@ -16,8 +16,7 @@ import json
 import sys
 
 # Import tool functions
-sys.path.append('tools')
-from ci_tools import (
+from tools.ci_tools import (
     duckduckgo_search,
     get_wikipedia_info,
     scrape_website,
@@ -124,16 +123,27 @@ ci_analyst = autogen.AssistantAgent(
     llm_config=llm_config_ci_analyst,
     system_message="""You are an expert Competitive Intelligence Analyst.
     Your goal is to provide comprehensive, data-driven competitive analyses for companies or new business ideas.
-    You have access to powerful tools to gather information:
+    
+    IMPORTANT: You MUST use the available tools to gather real data. Do not make up information or plan without executing.
+    
+    Available tools:
     - `duckduckgo_search(query)`: For general web research, finding company websites, news, and initial competitor identification.
     - `get_wikipedia_info(query)`: To get concise background information from Wikipedia.
     - `scrape_website(url)`: To extract the main text content from any given URL.
     - `generate_industry_competitors(industry, company_description)`: To specifically identify competitors within a given industry.
     - `collect_comprehensive_ci_data(company_name, industry)`: To collect extensive competitive intelligence data.
 
-    Always prioritize using these tools to gather facts before drawing conclusions or generating reports.
-    Break down tasks into logical, executable steps. When you decide to use a tool, output ONLY the tool call in the correct format.
-    Once all necessary data is collected, synthesize it into the requested report format. If you need a file to be created or read, directly output the Python code to do so within a code block.
+    EXECUTION RULES:
+    1. Start by using tools to gather factual data about the company/industry
+    2. Use tools to identify and research competitors
+    3. Use tools to collect comprehensive market data
+    4. Only after gathering real data, synthesize findings into a comprehensive report
+    5. Output tool calls in the exact format expected by AutoGen
+    6. Do not plan or discuss - EXECUTE tools immediately
+    7. After completing the analysis, end your response with "TERMINATE"
+    
+    When you need to use a tool, output ONLY the tool call in the correct JSON format.
+    After collecting data, create a comprehensive analysis report and end with TERMINATE.
     """
 )
 
@@ -147,15 +157,16 @@ data_collector = autogen.UserProxyAgent(
     is_termination_msg=lambda x: x.get("content") and x.get("content").rstrip().endswith("TERMINATE"),
     code_execution_config={
         "executor": LocalCommandLineCodeExecutor(work_dir=coding_work_dir),
+        "last_n_messages": 3,
     },
+    function_map={
+        "duckduckgo_search": duckduckgo_search,
+        "get_wikipedia_info": get_wikipedia_info,
+        "scrape_website": scrape_website,
+        "generate_industry_competitors": generate_industry_competitors,
+        "collect_comprehensive_ci_data": collect_comprehensive_ci_data,
+    }
 )
-
-# Register the functions for execution
-data_collector.register_for_execution(name="duckduckgo_search")(duckduckgo_search)
-data_collector.register_for_execution(name="get_wikipedia_info")(get_wikipedia_info)
-data_collector.register_for_execution(name="scrape_website")(scrape_website)
-data_collector.register_for_execution(name="generate_industry_competitors")(generate_industry_competitors)
-data_collector.register_for_execution(name="collect_comprehensive_ci_data")(collect_comprehensive_ci_data)
 
 # method to run CI analysis
 def run_ci_analysis(company_input, industry, target_audience, key_features, analysis_type):
@@ -177,28 +188,30 @@ def run_ci_analysis(company_input, industry, target_audience, key_features, anal
         
         # Generate report from collected data
         report_summary = "No data available for analysis."
-        if os.path.exists("coding/ci_analysis_data.csv"):
+        csv_path = "coding/ci_analysis_data.csv"
+        if os.path.exists(csv_path):
             try:
-                with open("coding/ci_analysis_data.csv", mode="r", encoding="utf-8") as file:
-                    file_content = file.read()
+                df = pd.read_csv(csv_path)
                 report_summary = f"""# Competitive Intelligence Report for {company_input}
 
 ## Executive Summary
 Comprehensive analysis of {company_input} in the {industry} industry.
 
-## Data Collected
-{file_content}
+## Competitor Analysis
+{df.to_html(index=False)}
 
 ## Key Findings
-- Company analysis completed
-- Competitor data gathered
-- Market positioning analyzed
+- **Market Position**: {company_input} competes with {len(df)} major competitors
+- **Top Competitors**: {', '.join(df['name'].head(3).tolist())}
+- **Market Dynamics**: Analysis shows competitive landscape in {industry}
 
 ## Recommendations
 Based on the collected data, strategic recommendations have been generated for {company_input}.
 """
-            except FileNotFoundError:
-                report_summary = "Data file not found."
+            except Exception as e:
+                report_summary = f"Error reading data file: {e}"
+        else:
+            report_summary = "Data file not found. Analysis may still be in progress."
 
     return output_capture.getvalue(), report_summary
 

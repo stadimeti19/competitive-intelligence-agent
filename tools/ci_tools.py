@@ -138,7 +138,7 @@ def generate_industry_competitors(industry: str, company_description: str) -> st
         ]
     return str(competitors)
 
-def create_comprehensive_plots(df, company_name, industry):
+def create_comprehensive_plots(df, company_name, industry, plot_path: str):
     """Create comprehensive visualization plots for CI analysis."""
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
     if 'pricing' in df.columns:
@@ -173,7 +173,7 @@ def create_comprehensive_plots(df, company_name, industry):
         for i, name in enumerate(df['name']):
             ax4.annotate(name, (prices[i], y_values[i]), xytext=(5, 5), textcoords='offset points')
     plt.tight_layout()
-    plt.savefig('ci_analysis_plot.png', dpi=300, bbox_inches='tight')
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
     plt.close()
 
 def collect_comprehensive_ci_data(company_name: str, industry: str) -> str:
@@ -183,8 +183,17 @@ def collect_comprehensive_ci_data(company_name: str, industry: str) -> str:
     wiki_info = get_wikipedia_info(company_name)
     competitors = generate_industry_competitors(industry, company_name)
     df = pd.DataFrame(eval(competitors))
-    df.to_csv('ci_analysis_data.csv', index=False)
-    create_comprehensive_plots(df, company_name, industry)
+    
+    # Save to coding directory
+    csv_path = 'coding/ci_analysis_data.csv'
+    plot_path = 'coding/ci_analysis_plot.png'
+    
+    # Ensure coding directory exists
+    os.makedirs('coding', exist_ok=True)
+    
+    df.to_csv(csv_path, index=False)
+    create_comprehensive_plots(df, company_name, industry, plot_path)
+    
     return {
         'company': company_name,
         'industry': industry,

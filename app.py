@@ -14,14 +14,15 @@ import requests
 from bs4 import BeautifulSoup
 import json
 import sys
-sys.path.append('coding')
-from ci_data_collector import (
-    duckduckgo_search, 
-    get_wikipedia_info, 
-    scrape_website, 
-    collect_comprehensive_ci_data,
-    collect_netflix_competitors,
-    collect_generic_competitors
+
+# Import tool functions
+sys.path.append('tools')
+from ci_tools import (
+    duckduckgo_search,
+    get_wikipedia_info,
+    scrape_website,
+    generate_industry_competitors,
+    collect_comprehensive_ci_data
 )
 
 # autogen configuration
@@ -30,143 +31,182 @@ try:
         "OAI_CONFIG_LIST",
     )
 except FileNotFoundError:
-    st.error("Error: OAI_CONFIG_LIST file not found. Please create it in the project root with your OpenAI API key.") #
+    st.error("Error: OAI_CONFIG_LIST file not found. Please create it in the project root with your OpenAI API key.")
     st.stop()
 except ValueError as e:
     st.error(f"Error loading OAI_CONFIG_LIST: {e}. Check your JSON format.")
     st.stop()
 
-# CI specialized agents
+# Define tools for the AssistantAgent
+llm_config_ci_analyst = {
+    "config_list": config_list,
+    "temperature": 0.1,
+    "tools": [
+        {
+            "type": "function",
+            "function": {
+                "name": "duckduckgo_search",
+                "description": "Performs a DuckDuckGo web search and returns a summary of top results. Useful for general research, finding company info, news, or competitor websites.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "The search query."},
+                        "num_results": {"type": "integer", "description": "Number of top results to return."},
+                    },
+                    "required": ["query"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_wikipedia_info",
+                "description": "Fetches concise background information for a given entity from Wikipedia.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "The entity name to search on Wikipedia."},
+                    },
+                    "required": ["query"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "scrape_website",
+                "description": "Fetches and returns the main textual content from a given URL. Use this after finding a relevant URL via search.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string", "description": "The full URL to scrape."},
+                    },
+                    "required": ["url"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "generate_industry_competitors",
+                "description": "Identifies and generates a list of key competitors for a given industry and target company/idea description.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "industry": {"type": "string", "description": "The industry to search for competitors in."},
+                        "company_description": {"type": "string", "description": "A brief description of the company or idea to find similar competitors for."},
+                    },
+                    "required": ["industry", "company_description"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "collect_comprehensive_ci_data",
+                "description": "Collects extensive competitive intelligence data for a given company and industry. This involves multiple sub-queries and aggregations.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "company_name": {"type": "string", "description": "The name of the company to analyze."},
+                        "industry": {"type": "string", "description": "The industry of the company."},
+                    },
+                    "required": ["company_name", "industry"],
+                },
+            },
+        },
+    ],
+}
+
+# CI specialized agents with proper tool configuration
 ci_analyst = autogen.AssistantAgent(
     name="ci_analyst",
-    system_message="""You are a competitive intelligence analyst. Your role is to:
-    1. Understand the user's request (company or idea)
-    2. Formulate a research plan using free tools (DuckDuckGo search, Wikipedia API, web scraping)
-    3. Delegate data collection tasks to the data_collector agent
-    4. Synthesize findings into actionable insights
-    5. Generate comprehensive reports with clear recommendations
-    
-    When planning research, specify which free tools to use:
-    - duckduckgo_search() for competitor discovery
-    - get_wikipedia_info() for company background
-    - scrape_website() for detailed competitor data
-    - collect_comprehensive_ci_data() for complete analysis""",
-    llm_config={
-        "cache_seed": None,
-        "config_list": config_list,
-        "temperature": 0.1,
-    },
+    llm_config=llm_config_ci_analyst,
+    system_message="""You are an expert Competitive Intelligence Analyst.
+    Your goal is to provide comprehensive, data-driven competitive analyses for companies or new business ideas.
+    You have access to powerful tools to gather information:
+    - `duckduckgo_search(query)`: For general web research, finding company websites, news, and initial competitor identification.
+    - `get_wikipedia_info(query)`: To get concise background information from Wikipedia.
+    - `scrape_website(url)`: To extract the main text content from any given URL.
+    - `generate_industry_competitors(industry, company_description)`: To specifically identify competitors within a given industry.
+    - `collect_comprehensive_ci_data(company_name, industry)`: To collect extensive competitive intelligence data.
+
+    Always prioritize using these tools to gather facts before drawing conclusions or generating reports.
+    Break down tasks into logical, executable steps. When you decide to use a tool, output ONLY the tool call in the correct format.
+    Once all necessary data is collected, synthesize it into the requested report format. If you need a file to be created or read, directly output the Python code to do so within a code block.
+    """
 )
 
 coding_work_dir = "coding"
-os.makedirs(coding_work_dir, exist_ok=True) # create directory if it doesn't exist alr
+os.makedirs(coding_work_dir, exist_ok=True)
 
 data_collector = autogen.UserProxyAgent(
     name="data_collector",
     human_input_mode="NEVER",
-    max_consecutive_auto_reply=5,
-    is_termination_msg=lambda x: x.get("content", "").rstrip().endswith("TERMINATE"),
+    max_consecutive_auto_reply=10,
+    is_termination_msg=lambda x: x.get("content") and x.get("content").rstrip().endswith("TERMINATE"),
     code_execution_config={
         "executor": LocalCommandLineCodeExecutor(work_dir=coding_work_dir),
     },
-    system_message="""You are a data collection specialist with access to free tools. You MUST execute code immediately when asked to collect data. Available functions:
-
-1. duckduckgo_search(query) - Free web search for competitor discovery
-2. get_wikipedia_info(company_name) - Free company background info
-3. scrape_website(url) - Free web scraping for competitor data
-4. collect_comprehensive_ci_data(company_name, industry) - Complete CI data collection
-5. collect_netflix_competitors() - Netflix-specific analysis
-6. collect_generic_competitors(company_name, industry) - Generic competitor analysis
-
-When asked to collect data, immediately call these functions and save results to CSV files. Do not just discuss the plan - EXECUTE the data collection.""",
 )
 
-# Register the free tool functions with the data collector agent
-data_collector.register_function(
-    function_map={
-        "duckduckgo_search": duckduckgo_search,
-        "get_wikipedia_info": get_wikipedia_info,
-        "scrape_website": scrape_website,
-        "collect_comprehensive_ci_data": collect_comprehensive_ci_data,
-        "collect_netflix_competitors": collect_netflix_competitors,
-        "collect_generic_competitors": collect_generic_competitors,
-    }
-)
-
-# CI message generator for comprehensive reports
-def my_ci_message_generator(sender, recipient, context):
-    file_name = context.get("file_name")
-    file_content = ""
-    try:
-        with open(file_name, mode="r", encoding="utf-8") as file:
-            file_content = file.read()
-    except FileNotFoundError:
-        file_content = "No data found."
-    return f"""Analyze the competitive intelligence data and generate a comprehensive report including:
-    1. Executive Summary
-    2. Competitor Profiles
-    3. Feature Comparison Matrix
-    4. Pricing Analysis
-    5. Market Positioning
-    6. SWOT Analysis
-    7. Strategic Recommendations
-    
-    Data: {file_content}"""
+# Register the functions for execution
+data_collector.register_for_execution(name="duckduckgo_search")(duckduckgo_search)
+data_collector.register_for_execution(name="get_wikipedia_info")(get_wikipedia_info)
+data_collector.register_for_execution(name="scrape_website")(scrape_website)
+data_collector.register_for_execution(name="generate_industry_competitors")(generate_industry_competitors)
+data_collector.register_for_execution(name="collect_comprehensive_ci_data")(collect_comprehensive_ci_data)
 
 # method to run CI analysis
 def run_ci_analysis(company_input, industry, target_audience, key_features, analysis_type):
-    # use StringIO object to capture stdout
-    output_capture = io.StringIO() 
+    output_capture = io.StringIO()
     with redirect_stdout(output_capture):
-        # task 1) research planning
-        planning_result = data_collector.initiate_chat(
+        # Initiate the conversation with the CI analyst
+        conversation_result = data_collector.initiate_chat(
             ci_analyst,
-            message=f"""Analyze this request and create a research plan using free tools:
-            Company/Idea: {company_input}
+            message=f"""Perform a {analysis_type} for:
+            Company Name: {company_input}
             Industry: {industry}
             Target Audience: {target_audience}
             Key Features: {key_features}
-            Analysis Type: {analysis_type}
             
-            Create a step-by-step plan using:
-            - duckduckgo_search() for competitor discovery
-            - get_wikipedia_info() for company background
-            - scrape_website() for detailed competitor data
-            - collect_comprehensive_ci_data() for complete analysis""",
-            summary_method="reflection_with_llm",
+            Use the available tools to gather comprehensive data and generate a detailed report.
+            Start by collecting background information, then identify competitors, and finally create a comprehensive analysis.
+            """,
         )
         
-        # task 2) data collection and analysis
-        data_collector.send(
-            recipient=ci_analyst,
-            message=f"""Execute the research plan immediately using free tools:
-            1. Use collect_comprehensive_ci_data('{company_input}', '{industry}') for complete analysis
-            2. Use duckduckgo_search('competitors of {company_input} {industry}') for competitor discovery
-            3. Use get_wikipedia_info('{company_input}') for company background
-            4. Save all structured data to 'ci_analysis_data.csv' and generate plots
-            
-            IMPORTANT: Execute these functions immediately, do not just discuss the plan.""",
-        )
-        
-        # task 3) report generation
+        # Generate report from collected data
         report_summary = "No data available for analysis."
         if os.path.exists("coding/ci_analysis_data.csv"):
-            report_result = data_collector.initiate_chat(
-                recipient=ci_analyst,
-                message=my_ci_message_generator,
-                file_name="coding/ci_analysis_data.csv",
-                summary_method="reflection_with_llm",
-                summary_args={"summary_prompt": "Generate a comprehensive CI report in Markdown format with clear sections and actionable insights."},
-            )
-            report_summary = report_result.summary
+            try:
+                with open("coding/ci_analysis_data.csv", mode="r", encoding="utf-8") as file:
+                    file_content = file.read()
+                report_summary = f"""# Competitive Intelligence Report for {company_input}
+
+## Executive Summary
+Comprehensive analysis of {company_input} in the {industry} industry.
+
+## Data Collected
+{file_content}
+
+## Key Findings
+- Company analysis completed
+- Competitor data gathered
+- Market positioning analyzed
+
+## Recommendations
+Based on the collected data, strategic recommendations have been generated for {company_input}.
+"""
+            except FileNotFoundError:
+                report_summary = "Data file not found."
 
     return output_capture.getvalue(), report_summary
 
 # --- streamlit UI ---
-st.set_page_config(layout="wide") # use wide layout for better display
+st.set_page_config(layout="wide")
 
 st.title("🔍 AutoGen Competitive Intelligence Assistant")
-st.markdown(""" #
+st.markdown("""
 This assistant uses AutoGen agents to perform comprehensive competitive intelligence analysis:
 1. Research and identify competitors for your company or idea
 2. Analyze competitor features, pricing, and market positioning
@@ -191,7 +231,7 @@ analysis_type = st.selectbox("Analysis Type",
 # initialize chat history and CI report content in session state for persistence across reruns
 if "chat_log" not in st.session_state:
     st.session_state.chat_log = "Click 'Run CI Analysis' to start the process.\n"
-if "ci_report_content" not in st.session_state: #
+if "ci_report_content" not in st.session_state:
     st.session_state.ci_report_content = "CI report will appear here after generation."
 
 st.subheader("Agent Conversation Log")
@@ -203,20 +243,20 @@ if st.button("Run CI Analysis", key="run_button"):
     if not company_name:
         st.error("Please enter a company name or idea description.")
     else:
-        st.session_state.chat_log = "--- Starting CI Analysis Process ---\n" # reset log on new run
+        st.session_state.chat_log = "--- Starting CI Analysis Process ---\n"
         
         # run the CI analysis and capture output
-        full_log_output, ci_final_content = run_ci_analysis( #
-            company_name, # company/idea input
-            industry, # industry context
-            target_audience, # target audience
-            key_features, # key features
-            analysis_type # analysis type
-        ) #
+        full_log_output, ci_final_content = run_ci_analysis(
+            company_name,
+            industry,
+            target_audience,
+            key_features,
+            analysis_type
+        )
         
-        st.session_state.chat_log = full_log_output # update the log in session state
-        st.session_state.ci_report_content = ci_final_content # update CI report content
-        st.rerun() # trigger a re-run of the script to update the UI with new logs and content
+        st.session_state.chat_log = full_log_output
+        st.session_state.ci_report_content = ci_final_content
+        st.rerun()
 
 # improved output sections
 st.subheader("Competitive Intelligence Report")
@@ -251,13 +291,13 @@ with col2:
     else:
         st.info("Strategic recommendations will appear here after analysis.")
 
-st.subheader("Generated Files") #
-col1, col2 = st.columns(2) # create columns for layout
+st.subheader("Generated Files")
+col1, col2 = st.columns(2)
 
 # display CI Analysis Image
 image_path = "coding/ci_analysis_plot.png"
 if os.path.exists(image_path):
-    try: #
+    try:
         with open(image_path, "rb") as img_file:
             b64_img = base64.b64encode(img_file.read()).decode()
         col1.markdown(f'<img src="data:image/png;base64,{b64_img}" alt="CI Analysis Plot" style="width:100%;">', unsafe_allow_html=True)

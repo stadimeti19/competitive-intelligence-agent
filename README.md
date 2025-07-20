@@ -1,4 +1,4 @@
-# AutoGen Competitive Intelligence Assistant
+# Competitive Intelligence Assistant
 
 A powerful competitive intelligence tool built with AutoGen and Streamlit that performs comprehensive market analysis and competitor research.
 
@@ -87,28 +87,3 @@ A powerful competitive intelligence tool built with AutoGen and Streamlit that p
 - **BeautifulSoup**: Web scraping and data extraction
 - **Pandas**: Data manipulation and analysis
 - **Matplotlib**: Data visualization and chart generation
-
-## File Structure
-
-```
-CodeAssistant/
-├── app.py                 # Main application file
-├── requirements.txt       # Python dependencies
-├── README.md             # This file
-├── coding/               # Generated files directory
-│   ├── ci_analysis_data.csv
-│   └── ci_analysis_plot.png
-└── OAI_CONFIG_LIST       # OpenAI API configuration
-```
-
-## Transformation from Stock Analysis
-
-This application was transformed from a stock analysis tool to a general-purpose competitive intelligence agent. Key changes include:
-
-- **Dynamic Input**: Replaced hardcoded stock symbols with flexible company/idea inputs
-- **Specialized Agents**: Enhanced agent roles for CI-specific tasks
-- **Comprehensive Analysis**: Expanded from simple stock comparison to full CI reports
-- **Enhanced UI**: Added input fields and organized output sections
-- **Web Scraping**: Added capabilities for gathering competitor data from the web
-
-The core AutoGen architecture remains the same, demonstrating the framework's flexibility for different use cases.

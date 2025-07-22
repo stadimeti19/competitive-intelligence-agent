@@ -30,8 +30,16 @@ from tools.ci_tools import (
     search_company_info,
     get_company_website_data,
     analyze_competitor_data,
-    collect_comprehensive_ci_data
+    collect_comprehensive_ci_data,
+    playwright_scrape
 )
+
+# Add this utility function near the top (after imports)
+def safe_display(val):
+    import pandas as pd
+    if pd.isna(val) or str(val).strip() == "" or str(val).lower() == "n/a":
+        return "N/A"
+    return val
 
 # autogen configuration - using newer API
 try:
@@ -152,6 +160,20 @@ llm_config_ci_analyst = {
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "playwright_scrape",
+                "description": "Uses Playwright to fetch the fully rendered HTML of a page (for JavaScript-heavy sites). Returns the page content as text.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string", "description": "The full URL to scrape using Playwright."},
+                    },
+                    "required": ["url"],
+                },
+            },
+        },
     ],
 }
 
@@ -197,8 +219,8 @@ os.makedirs(coding_work_dir, exist_ok=True)
 data_collector = autogen.UserProxyAgent(
     name="data_collector",
     human_input_mode="NEVER",
-    max_consecutive_auto_reply=10,
-    is_termination_msg=lambda x: x.get("content") and x.get("content").rstrip().endswith("TERMINATE"),
+    max_consecutive_auto_reply=3,
+    is_termination_msg=lambda x: x.get("content") and x.get("content").strip().endswith("TERMINATE"),
     code_execution_config={
         "executor": LocalCommandLineCodeExecutor(work_dir=coding_work_dir),
         "last_n_messages": 3,
@@ -211,6 +233,7 @@ data_collector = autogen.UserProxyAgent(
         "get_company_website_data": get_company_website_data,
         "analyze_competitor_data": analyze_competitor_data,
         "collect_comprehensive_ci_data": collect_comprehensive_ci_data,
+        "playwright_scrape": playwright_scrape,
     }
 )
 
@@ -286,14 +309,14 @@ def run_ci_analysis(company_input, industry, target_audience, key_features, anal
 
                 st.session_state.market_positioning = f"""
                 **Market Share Analysis:**
-                - {df.iloc[0]['name']}: {df.iloc[0].get(market_share_col, 'N/A')}% market share
-                - {df.iloc[1]['name']}: {df.iloc[1].get(market_share_col, 'N/A')}% market share  
-                - {df.iloc[2]['name']}: {df.iloc[2].get(market_share_col, 'N/A')}% market share
+                - {safe_display(df.iloc[0]['name'])}: {safe_display(df.iloc[0].get(market_share_col, 'N/A'))}% market share
+                - {safe_display(df.iloc[1]['name'])}: {safe_display(df.iloc[1].get(market_share_col, 'N/A'))}% market share  
+                - {safe_display(df.iloc[2]['name'])}: {safe_display(df.iloc[2].get(market_share_col, 'N/A'))}% market share
                 
                 **Pricing Strategy:**
-                - {df.iloc[0]['name']}: {df.iloc[0][pricing_col] if pricing_col and pricing_col in df.columns else 'N/A'}
-                - {df.iloc[1]['name']}: {df.iloc[1][pricing_col] if pricing_col and pricing_col in df.columns else 'N/A'}
-                - {df.iloc[2]['name']}: {df.iloc[2][pricing_col] if pricing_col and pricing_col in df.columns else 'N/A'}
+                - {safe_display(df.iloc[0]['name'])}: {safe_display(df.iloc[0][pricing_col] if pricing_col and pricing_col in df.columns else 'N/A')}
+                - {safe_display(df.iloc[1]['name'])}: {safe_display(df.iloc[1][pricing_col] if pricing_col and pricing_col in df.columns else 'N/A')}
+                - {safe_display(df.iloc[2]['name'])}: {safe_display(df.iloc[2][pricing_col] if pricing_col and pricing_col in df.columns else 'N/A')}
                 """
                 
                 st.session_state.recommendations = f"""
@@ -323,6 +346,38 @@ Based on the collected data, strategic recommendations have been generated for {
                 report_summary = f"Error reading data file: {e}"
         else:
             report_summary = "Data file not found. Analysis may still be in progress."
+
+    # Remove old plot if it exists
+    plot_path = "coding/ci_analysis_plot.png"
+    if os.path.exists(plot_path):
+        os.remove(plot_path)
+
+    # Generate and save updated plot for revenue and market share
+    if not df.empty and 'name' in df.columns:
+        fig, ax = plt.subplots(figsize=(8, 4))
+        plotted = False
+        # Revenue Bar Chart
+        if 'revenue' in df.columns and df['revenue'].apply(lambda x: str(x).replace('.', '', 1).isdigit()).any():
+            df_plot = df[df['revenue'].apply(lambda x: str(x).replace('.', '', 1).isdigit())]
+            if not df_plot.empty:
+                df_plot.loc[:, 'revenue'] = df_plot['revenue'].astype(float)
+                ax.bar(df_plot['name'], df_plot['revenue'], color='skyblue')
+                ax.set_title('Competitor Revenue Comparison')
+                ax.set_ylabel('Revenue (USD)')
+                ax.set_xticklabels(df_plot['name'], rotation=30, ha='right')
+                plotted = True
+        # Market Share Pie Chart (if revenue not available or as second plot)
+        if not plotted and 'market_share' in df.columns and df['market_share'].apply(lambda x: str(x).replace('.', '', 1).isdigit()).any():
+            df_share = df[df['market_share'].apply(lambda x: str(x).replace('.', '', 1).isdigit())]
+            if not df_share.empty:
+                df_share.loc[:, 'market_share'] = df_share['market_share'].astype(float)
+                ax.pie(df_share['market_share'], labels=df_share['name'], autopct='%1.1f%%')
+                ax.set_title('Market Share Distribution')
+                plotted = True
+        if plotted:
+            plt.tight_layout()
+            plt.savefig(plot_path)
+            plt.close(fig)
 
     return output_capture.getvalue(), report_summary
 
@@ -386,13 +441,34 @@ if st.button("Run CI Analysis", key="run_button"):
 st.subheader("Competitive Intelligence Report")
 st.markdown(st.session_state.ci_report_content)
 
-# Add this section for Competitor Analysis Table
+# Add visualizations for revenue and market share if available
 st.subheader("Competitor Analysis")
 csv_path = "coding/ci_analysis_data.csv"
 if os.path.exists(csv_path):
     try:
         df = pd.read_csv(csv_path)
         st.dataframe(df)
+        # Revenue Bar Chart
+        if "revenue" in df.columns and df["revenue"].apply(lambda x: str(x).replace('.', '', 1).isdigit()).any():
+            st.markdown("**Revenue Comparison (USD, as reported):**")
+            df_revenue = df[df["revenue"].apply(lambda x: str(x).replace('.', '', 1).isdigit())]
+            df_revenue.loc[:, 'revenue'] = df_revenue['revenue'].astype(float)
+            st.bar_chart(df_revenue.set_index("name")["revenue"])
+        # Market Share Pie Chart
+        if "market_share" in df.columns and df["market_share"].apply(lambda x: str(x).replace('.', '', 1).isdigit()).any():
+            st.markdown("**Market Share Distribution (%):**")
+            df_share = df[df["market_share"].apply(lambda x: str(x).replace('.', '', 1).isdigit())]
+            df_share.loc[:, 'market_share'] = df_share['market_share'].astype(float)
+            st.pyplot(
+                plt.figure(figsize=(6, 3))
+            )
+            plt.pie(df_share["market_share"], labels=df_share["name"], autopct="%1.1f%%")
+            plt.title("Market Share Distribution")
+            st.pyplot(plt)
+        # Pricing Tiers Table
+        if "pricing_tiers" in df.columns:
+            st.markdown("**Pricing Tiers:**")
+            st.dataframe(df[["name", "pricing_tiers"]])
     except Exception as e:
         st.error(f"Error loading competitor data: {e}")
 else:
@@ -460,5 +536,30 @@ if os.path.exists(csv_path):
         col2.error(f"Error reading CSV: {e}")
 else:
     col2.warning("CI analysis data not yet generated. Run the analysis.")
+
+# --- Add PDF download option for the report ---
+import tempfile
+from fpdf import FPDF
+
+def generate_pdf_report(report_text):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_font("Arial", size=12)
+    for line in report_text.splitlines():
+        pdf.multi_cell(0, 10, line)
+    tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    pdf.output(tmp_file.name)
+    return tmp_file.name
+
+if st.session_state.ci_report_content and st.session_state.ci_report_content != "CI report will appear here after generation.":
+    pdf_path = generate_pdf_report(st.session_state.ci_report_content)
+    with open(pdf_path, "rb") as pdf_file:
+        st.download_button(
+            label="Download Full Report (PDF)",
+            data=pdf_file.read(),
+            file_name="ci_report.pdf",
+            mime="application/pdf",
+        )
 
 st.markdown("---")

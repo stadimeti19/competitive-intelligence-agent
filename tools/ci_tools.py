@@ -65,9 +65,8 @@ def scrape_website(url: str) -> str:
 
 def generate_industry_competitors(industry: str, company_description: str) -> str:
     """
-    Finds real competitors for a company or idea using web search only.
-    NO HARDCODED COMPETITORS OR LLM-ONLY FALLBACKS ALLOWED.
-    Returns a JSON array of competitor names.
+    Finds real competitors for a company or idea using web search and LLM-based filtering.
+    Returns a JSON array of competitor names (validated by LLM).
     """
     print(f"--- Finding competitors for: '{company_description}' in '{industry}' ---")
     query = f"top competitors of {company_description} in {industry} industry"
@@ -75,15 +74,11 @@ def generate_industry_competitors(industry: str, company_description: str) -> st
         # Use DuckDuckGo search for real competitors
         with DDGS() as ddgs:
             results = [r for r in ddgs.text(query, max_results=10)]
-        # Extract company names from titles/snippets using regex or simple parsing
         import re
-        competitors = set()
+        candidates = set()
         for r in results:
-            # Try to extract company names from title and body
             text = (r.get('title', '') + ' ' + r.get('body', ''))
-            # Look for patterns like "X, Y, Z, and W" or lists
             found = re.findall(r'([A-Z][A-Za-z0-9&\-. ]{2,})', text)
-            # Filter out the original company and generic words
             for name in found:
                 name_clean = name.strip().replace('\n', '').replace('\r', '')
                 if (name_clean.lower() not in company_description.lower()
@@ -92,11 +87,30 @@ def generate_industry_competitors(industry: str, company_description: str) -> st
                     and not name_clean.lower().startswith('top ')
                     and not name_clean.lower().startswith('best ')
                     and not name_clean.lower().startswith('competitors')):
-                    competitors.add(name_clean)
-        # Return up to 8 unique competitors
-        competitors_list = list(competitors)[:8]
-        print(f"--- Found competitors: {competitors_list} ---")
-        return json.dumps(competitors_list)
+                    candidates.add(name_clean)
+        candidates_list = list(candidates)
+        print(f"--- Raw extracted candidates: {candidates_list} ---")
+        # LLM-based filtering for valid company names
+        llm_prompt = f"""
+        Given the following list of extracted names from web search results about competitors in the {industry} industry for '{company_description}', return ONLY the valid company names (no phrases, no generic terms, no duplicates, no original company). Return as a JSON array of strings. If none are valid, return an empty array.
+        
+        Extracted: {json.dumps(candidates_list)}
+        """
+        filtered = get_llm_response(llm_prompt)
+        # Try to parse the LLM output as JSON array
+        try:
+            if filtered.startswith('```json'):
+                filtered = filtered[7:-3]
+            elif filtered.startswith('```'):
+                filtered = filtered[3:-3]
+            competitors_list = json.loads(filtered)
+            if not isinstance(competitors_list, list):
+                competitors_list = []
+        except Exception as e:
+            print(f"Error parsing LLM competitor output: {e}")
+            competitors_list = []
+        print(f"--- LLM-filtered competitors: {competitors_list} ---")
+        return json.dumps(competitors_list[:8])
     except Exception as e:
         print(f"Error finding competitors: {e}")
         return json.dumps([])
@@ -144,39 +158,101 @@ def get_company_website_data(company_name: str) -> str:
     
     return json.dumps({"error": "Could not scrape website"})
 
+def playwright_scrape(url: str) -> str:
+    """
+    Uses Playwright to fetch the fully rendered HTML of a page (for JavaScript-heavy sites).
+    Returns the page content as text.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(url, timeout=30000)
+            page.wait_for_load_state('networkidle', timeout=15000)
+            content = page.content()
+            browser.close()
+            return content
+    except Exception as e:
+        return f"Error using Playwright to scrape {url}: {e}"
+
+def _extract_currency_from_text(text: str) -> str:
+    import re
+    patterns = [
+        r'\$[\d\.,]+\s*(?:billion|million|B|M)?',
+        r'\b\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:billion|million|B|M)\b',
+        r'\b(?:revenue|sales|income)\s+of\s+\$*[\d\.,]+\s*(?:billion|million|B|M)?\b'
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return match.group(0)
+    return "N/A"
+
+def _extract_percentage_from_text(text: str) -> str:
+    import re
+    patterns = [
+        r'(\d+(?:\.\d+)?)%\s*(?:market share)?',
+        r'(\d+(?:\.\d+)?)\s*(?:percent|pct)\s*(?:market share)?'
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return match.group(0)
+    return "N/A"
+
 def analyze_competitor_data(company_name: str, industry: str) -> str:
     """
-    Comprehensive analysis tool that combines multiple data sources.
-    The agent can use this to get a complete picture of a competitor.
+    Enhanced: Performs targeted searches for revenue and market share, uses regex to extract numbers, and falls back to LLM for qualitative fields.
     """
     print(f"--- Analyzing data for: {company_name} ---")
-    
     # Get multiple data sources
     general_info = json.loads(search_company_info(company_name, "general"))
     features_info = json.loads(search_company_info(company_name, "features"))
     pricing_info = json.loads(search_company_info(company_name, "pricing"))
     website_data = json.loads(get_company_website_data(company_name))
-    
-    # Use GPT to synthesize the data
+    data_sources = ["general_info", "features_info", "pricing_info", "website_data"]
+    # --- Targeted search for revenue ---
+    revenue = "N/A"
+    revenue_queries = [
+        f"{company_name} annual revenue",
+        f"{company_name} financial report",
+        f"{company_name} earnings",
+        f"{company_name} investor relations"
+    ]
+    for query in revenue_queries:
+        search_results = duckduckgo_search(query, num_results=3)
+        data_sources.append(f"DDG: {query}")
+        revenue_candidate = _extract_currency_from_text(search_results)
+        if revenue_candidate != "N/A":
+            revenue = revenue_candidate
+            break
+    # --- Targeted search for market share ---
+    market_share = "N/A"
+    market_share_query = f"{company_name} market share {industry}"
+    ms_results = duckduckgo_search(market_share_query, num_results=3)
+    data_sources.append(f"DDG: {market_share_query}")
+    ms_candidate = _extract_percentage_from_text(ms_results)
+    if ms_candidate != "N/A":
+        market_share = ms_candidate
+    # --- LLM synthesis for qualitative fields ---
     synthesis_prompt = f"""
     Based on the following data sources, create a comprehensive analysis for {company_name} in the {industry} industry.
-    
     General Info: {general_info}
     Features Info: {features_info}
     Pricing Info: {pricing_info}
     Website Data: {website_data}
-    
-    Return a JSON object with:
+    Return a JSON object with the following fields (fill with 'N/A' if not available):
     {{
         "name": "{company_name}",
         "pricing_model": "Brief pricing description",
         "key_features": "Main features/offerings",
         "market_position": "Market position description",
         "target_audience": "Primary target audience",
+        "pricing_tiers": "List of main pricing tiers or typical price range (string)",
         "data_sources": "Number of data sources used"
     }}
     """
-    
     try:
         analysis_str = get_llm_response(synthesis_prompt)
         analysis_str = analysis_str.strip()
@@ -184,10 +260,12 @@ def analyze_competitor_data(company_name: str, industry: str) -> str:
             analysis_str = analysis_str[7:-3]
         elif analysis_str.startswith('```'):
             analysis_str = analysis_str[3:-3]
-        
         analysis = json.loads(analysis_str)
+        # Insert extracted numbers
+        analysis["revenue"] = revenue
+        analysis["market_share"] = market_share
+        analysis["data_sources"] = len(data_sources)
         return json.dumps(analysis)
-        
     except Exception as e:
         print(f"Error in analysis: {e}")
         return json.dumps({
@@ -196,7 +274,10 @@ def analyze_competitor_data(company_name: str, industry: str) -> str:
             "key_features": "Information not available",
             "market_position": "Information not available",
             "target_audience": "Information not available",
-            "data_sources": 0
+            "revenue": revenue,
+            "market_share": market_share,
+            "pricing_tiers": "N/A",
+            "data_sources": len(data_sources)
         })
 
 def collect_comprehensive_ci_data(company_name: str, industry: str) -> str:

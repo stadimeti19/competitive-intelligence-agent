@@ -10,18 +10,6 @@ A powerful competitive intelligence agent with a modern React frontend and Pytho
 - **Analysis & Synthesis:** Generates executive summaries, feature matrices, pricing tables, market positioning, SWOT, and recommendations.
 - **Modern UI:** Interactive, business-friendly dashboard built with React, Tailwind, and shadcn-ui.
 
-## Project Structure
-
-```
-CodeAssistant/
-  backend.py           # Backend CI agent logic (run_ci_analysis)
-  main.py              # FastAPI backend API
-  requirements.txt     # Python dependencies
-  tools/               # Custom tool functions for scraping, search, etc.
-  coding/              # Output data (CSV, plots)
-  frontend/            # React frontend app (Vite, TypeScript, Tailwind)
-```
-
 ## How to Run
 
 ### 1. **Backend (FastAPI + Python)**
@@ -41,7 +29,7 @@ Start the backend API:
 ```bash
 uvicorn main:app --reload
 ```
-- The backend will run at http://localhost:8000
+- The backend will run at http://localhost:8000 (or similar)
 
 ### 2. **Frontend (React + Vite)**
 

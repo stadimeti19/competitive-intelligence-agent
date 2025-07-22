@@ -1,89 +1,86 @@
 # Competitive Intelligence Assistant
 
-A powerful competitive intelligence agent built with AutoGen and Streamlit that performs comprehensive market analysis and competitor research.
+A powerful competitive intelligence agent with a modern React frontend and Python FastAPI backend. It performs comprehensive market analysis and competitor research using LLMs, web scraping, and dynamic data extraction.
 
 ## Features
 
-### 🔍 **Dynamic Input System**
-- **Company Analysis**: Enter any company name (e.g., "Netflix", "Zoom")
-- **Idea Research**: Describe new business ideas (e.g., "AI-powered meal planning app")
-- **Context Parameters**: Specify industry, target audience, and key features
-- **Analysis Types**: Choose from Competitor Analysis, Market Research, SWOT Analysis, or Full CI Report
+- **Automated Research:** Enter a company name or business idea and get a full CI report.
+- **Competitor Identification:** Finds real, up-to-date competitors in any industry.
+- **Data Collection:** Gathers company overviews, features, pricing, market share, revenue, and more.
+- **Analysis & Synthesis:** Generates executive summaries, feature matrices, pricing tables, market positioning, SWOT, and recommendations.
+- **Modern UI:** Interactive, business-friendly dashboard built with React, Tailwind, and shadcn-ui.
 
-### 🤖 **Specialized AI Agents**
-- **CI Analyst**: Orchestrates research plans and synthesizes findings
-- **Data Collector**: Performs web scraping, API calls, and data gathering
-- **Multi-Agent Collaboration**: Seamless coordination between specialized agents
+## Project Structure
 
-### 📊 **Comprehensive Outputs**
-- **Executive Summary**: High-level insights and key findings
-- **Competitor Profiles**: Detailed analysis of identified competitors
-- **Feature Comparison Matrix**: Side-by-side feature analysis
-- **Pricing Analysis**: Competitive pricing strategies
-- **Market Positioning**: Visual positioning maps and analysis
-- **SWOT Analysis**: Strengths, weaknesses, opportunities, threats
-- **Strategic Recommendations**: Actionable insights and next steps
+```
+CodeAssistant/
+  backend.py           # Backend CI agent logic (run_ci_analysis)
+  main.py              # FastAPI backend API
+  requirements.txt     # Python dependencies
+  tools/               # Custom tool functions for scraping, search, etc.
+  coding/              # Output data (CSV, plots)
+  frontend/            # React frontend app (Vite, TypeScript, Tailwind)
+```
 
-### 📁 **File Generation**
-- **CSV Data Export**: Download structured competitor data
-- **Visualization Plots**: Market positioning and analysis charts
-- **Comprehensive Reports**: Markdown-formatted CI reports
+## How to Run
 
-## Setup
+### 1. **Backend (FastAPI + Python)**
 
-1. **Install Dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+Install Python dependencies:
+```bash
+pip install -r requirements.txt
+```
 
-2. **Configure API Keys**:
-   Create `OAI_CONFIG_LIST` file in project root:
-   ```json
-   [
-     {
-       "model": "gpt-4",
-       "api_key": "your-openai-api-key"
-     }
-   ]
-   ```
+Install Playwright (for dynamic scraping):
+```bash
+pip install playwright
+playwright install
+```
 
-3. **Run the Application**:
-   ```bash
-   streamlit run app.py
-   ```
+Start the backend API:
+```bash
+uvicorn main:app --reload
+```
+- The backend will run at http://localhost:8000
 
-## Usage
+### 2. **Frontend (React + Vite)**
 
-1. **Enter Target**: Input a company name or describe your business idea
-2. **Add Context**: Specify industry, target audience, and key features
-3. **Choose Analysis**: Select the type of competitive intelligence analysis
-4. **Run Analysis**: Click "Run CI Analysis" to start the automated process
-5. **Review Results**: Examine the comprehensive report and generated files
+Install Node.js dependencies:
+```bash
+cd frontend
+npm install
+```
 
-## Architecture
+Start the React development server:
+```bash
+npm run dev
+```
+- The frontend will run at http://localhost:5173 (or similar)
 
-### Agent Roles
-- **CI Analyst**: Research planning and synthesis
-- **Data Collector**: Web scraping and data gathering
-- **Report Generator**: Comprehensive report creation
+### 3. **Usage**
+- Open the frontend in your browser.
+- Enter a company name, industry, and other details.
+- Click "Start Analysis" to generate a full CI report.
+- View executive summary, competitor cards, feature matrix, pricing, and more.
 
-### Workflow
-1. **Research Planning**: Agent creates step-by-step research plan
-2. **Data Collection**: Automated competitor identification and data gathering
-3. **Analysis**: Feature comparison, pricing analysis, market positioning
-4. **Report Generation**: Comprehensive CI report with recommendations
+## API Contract
+- The frontend sends a POST request to `/analyze` with the form data.
+- The backend returns a structured JSON with summary, competitors, features, pricing, and logs.
 
-## Example Use Cases
+## Technologies Used
+- **Frontend:** React, Vite, TypeScript, Tailwind CSS, shadcn-ui
+- **Backend:** FastAPI, Python, Pandas, Playwright, LLMs (OpenAI), DuckDuckGo Search
 
-- **Startup Research**: Analyze competitors for a new SaaS product
-- **Market Entry**: Research existing players before entering a market
-- **Product Development**: Identify gaps and opportunities in current offerings
-- **Strategic Planning**: Understand competitive landscape for business decisions
+## Notes
+- Streamlit is no longer used. All UI is handled by the React app.
+- For production, set proper CORS and API keys.
 
-## Technical Stack
+## Example Workflow
+1. User enters "Netflix" and selects "Streaming" as industry.
+2. Frontend sends request to backend.
+3. Backend runs agent, scrapes data, generates report.
+4. Frontend displays interactive dashboard with all results.
 
-- **AutoGen**: Multi-agent orchestration and conversation management
-- **Streamlit**: Web interface and user experience
-- **BeautifulSoup**: Web scraping and data extraction
-- **Pandas**: Data manipulation and analysis
-- **Matplotlib**: Data visualization and chart generation
+---
+
+For further customization or deployment, see the code comments or ask for help!

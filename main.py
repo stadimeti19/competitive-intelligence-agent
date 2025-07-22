@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import os
 from tools.ci_tools import *
-from app import run_ci_analysis
+from backend import run_ci_analysis
 
 app = FastAPI()
 

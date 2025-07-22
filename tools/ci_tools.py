@@ -6,6 +6,8 @@ import requests
 from bs4 import BeautifulSoup
 from ddgs import DDGS
 import openai
+from dotenv import load_dotenv
+load_dotenv()
 
 # --- LLM Configuration ---
 try:

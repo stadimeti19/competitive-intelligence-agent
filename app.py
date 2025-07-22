@@ -15,6 +15,8 @@ from bs4 import BeautifulSoup
 import json
 import sys
 import warnings
+from dotenv import load_dotenv
+load_dotenv()
 
 # Suppress deprecation warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -44,7 +46,7 @@ except ValueError as e:
 
 # Define tools for the AssistantAgent
 llm_config_ci_analyst = {
-    "config_list": config_list,
+        "config_list": config_list,
     "temperature": 0.1,
     "tools": [
         {
@@ -218,7 +220,7 @@ def run_ci_analysis(company_input, industry, target_audience, key_features, anal
     csv_path = "coding/ci_analysis_data.csv"
     if os.path.exists(csv_path):
         os.remove(csv_path)
-    output_capture = io.StringIO()
+    output_capture = io.StringIO() 
     with redirect_stdout(output_capture):
         # Initiate the conversation with the CI analyst
         conversation_result = data_collector.initiate_chat(
@@ -366,7 +368,7 @@ if st.button("Run CI Analysis", key="run_button"):
         st.error("Please enter a company name or idea description.")
     else:
         st.session_state.chat_log = "--- Starting CI Analysis Process ---\n"
-        
+    
         # run the CI analysis and capture output
         full_log_output, ci_final_content = run_ci_analysis(
             company_name,

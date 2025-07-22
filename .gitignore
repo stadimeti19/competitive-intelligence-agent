@@ -3,6 +3,7 @@ code_assistant_env/
 
 # api key file
 OAI_CONFIG_LIST
+.env
 
 # python cache files
 __pycache__/

@@ -23,13 +23,18 @@ except (FileNotFoundError, ValueError):
         llm_config = None
 
 def get_llm_response(prompt):
-    if not llm_config:
-        return "LLM configuration is missing."
-    # Use the new LLMConfig interface
-    from autogen import LLMConfig
-    llm = LLMConfig.from_json(path="OAI_CONFIG_LIST").create_llm()
-    response = llm(prompt)
-    return response["choices"][0]["message"]["content"]
+    # Use OpenAI API directly for chat completion
+    import os
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY environment variable not set.")
+    client = openai.OpenAI(api_key=api_key)
+    response = client.chat.completions.create(
+        model="gpt-4o",  # or "gpt-4" or "gpt-3.5-turbo" as appropriate
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.1,
+    )
+    return response.choices[0].message.content
 
 # --- Tool Functions ---
 def duckduckgo_search(query: str, num_results: int = 8) -> str:

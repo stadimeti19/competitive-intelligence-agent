@@ -275,8 +275,13 @@ def run_ci_analysis(company_input, industry, target_audience, key_features, anal
                 
                 # Handle missing columns gracefully
                 market_share_col = 'market_share' if 'market_share' in df.columns else None
-                pricing_col = 'pricing' if 'pricing' in df.columns else 'features'
-                
+                if 'pricing' in df.columns:
+                    pricing_col = 'pricing'
+                elif 'features' in df.columns:
+                    pricing_col = 'features'
+                else:
+                    pricing_col = None
+
                 st.session_state.market_positioning = f"""
                 **Market Share Analysis:**
                 - {df.iloc[0]['name']}: {df.iloc[0].get(market_share_col, 'N/A')}% market share
@@ -284,9 +289,9 @@ def run_ci_analysis(company_input, industry, target_audience, key_features, anal
                 - {df.iloc[2]['name']}: {df.iloc[2].get(market_share_col, 'N/A')}% market share
                 
                 **Pricing Strategy:**
-                - {df.iloc[0]['name']}: {df.iloc[0][pricing_col]}
-                - {df.iloc[1]['name']}: {df.iloc[1][pricing_col]}
-                - {df.iloc[2]['name']}: {df.iloc[2][pricing_col]}
+                - {df.iloc[0]['name']}: {df.iloc[0][pricing_col] if pricing_col and pricing_col in df.columns else 'N/A'}
+                - {df.iloc[1]['name']}: {df.iloc[1][pricing_col] if pricing_col and pricing_col in df.columns else 'N/A'}
+                - {df.iloc[2]['name']}: {df.iloc[2][pricing_col] if pricing_col and pricing_col in df.columns else 'N/A'}
                 """
                 
                 st.session_state.recommendations = f"""

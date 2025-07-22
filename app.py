@@ -329,7 +329,7 @@ st.set_page_config(layout="wide")
 
 st.title("Competitive Intelligence Assistant")
 st.markdown("""
-This assistant uses AutoGen agents to perform comprehensive competitive intelligence analysis:
+Perform comprehensive competitive intelligence analysis:
 1. Research and identify competitors for your company or idea
 2. Analyze competitor features, pricing, and market positioning
 3. Generate detailed reports with strategic insights and recommendations

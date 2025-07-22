@@ -1,203 +1,219 @@
+import autogen
+import json
+import os
+import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-import pandas as pd
-import matplotlib.pyplot as plt
-from datetime import datetime
-import time
-import random
-import os
+from ddgs import DDGS
+import openai
 
-def duckduckgo_search(query: str, num_results: int = 5) -> str:
-    """Performs a DuckDuckGo web search and returns a summary of top results."""
+# --- LLM Configuration ---
+try:
+    config_list = autogen.config_list_from_json("OAI_CONFIG_LIST")
+    llm_config = {"config_list": config_list, "temperature": 0}
+except (FileNotFoundError, ValueError):
+    print("Warning: OAI_CONFIG_LIST not found or invalid. Using environment variables.")
     try:
-        url = "https://api.duckduckgo.com/"
-        params = {
-            'q': query,
-            'format': 'json',
-            'no_html': '1',
-            'skip_disambig': '1'
-        }
-        response = requests.get(url, params=params, timeout=10)
-        data = response.json()
-        results = []
-        if data.get('Abstract'):
-            results.append({
-                'title': data.get('Abstract'),
-                'url': data.get('AbstractURL'),
-                'snippet': data.get('AbstractText')
-            })
-        for topic in data.get('RelatedTopics', [])[:num_results-1]:
-            if isinstance(topic, dict) and topic.get('Text'):
-                results.append({
-                    'title': topic.get('Text', ''),
-                    'url': topic.get('FirstURL', ''),
-                    'snippet': topic.get('Text', '')
-                })
-        return str(results)
+        config_list = autogen.config_list_from_models(
+            model_list=["gpt-3.5-turbo", "gpt-4"],
+        )
+        llm_config = {"config_list": config_list, "temperature": 0}
     except Exception as e:
-        return f"Search error: {e}"
+        print(f"Fatal: Could not configure LLM. Please set up OAI_CONFIG_LIST or API keys. Error: {e}")
+        llm_config = None
 
-def get_wikipedia_info(query: str) -> str:
-    """Fetches concise background information for a given entity from Wikipedia."""
+def get_llm_response(prompt):
+    if not llm_config:
+        return "LLM configuration is missing."
+    # Use the new LLMConfig interface
+    from autogen import LLMConfig
+    llm = LLMConfig.from_json(path="OAI_CONFIG_LIST").create_llm()
+    response = llm(prompt)
+    return response["choices"][0]["message"]["content"]
+
+# --- Tool Functions ---
+def duckduckgo_search(query: str, num_results: int = 8) -> str:
+    print(f"--- Searching for: '{query}' ---")
     try:
-        search_url = "https://en.wikipedia.org/w/api.php"
-        search_params = {
-            'action': 'query',
-            'format': 'json',
-            'list': 'search',
-            'srsearch': query,
-            'srlimit': 1
-        }
-        response = requests.get(search_url, params=search_params)
-        data = response.json()
-        if data['query']['search']:
-            page_id = data['query']['search'][0]['pageid']
-            content_params = {
-                'action': 'query',
-                'format': 'json',
-                'prop': 'extracts',
-                'pageids': page_id,
-                'exintro': True,
-                'explaintext': True
-            }
-            content_response = requests.get(search_url, params=content_params)
-            content_data = content_response.json()
-            extract = content_data['query']['pages'][str(page_id)]['extract']
-            return {
-                'company': query,
-                'wikipedia_summary': extract[:500] + '...' if len(extract) > 500 else extract,
-                'source': 'Wikipedia'
-            }
-        else:
-            return {'company': query, 'error': 'No Wikipedia page found'}
+        with DDGS() as ddgs:
+            results = [r for r in ddgs.text(query, max_results=num_results)]
+        return json.dumps(results)
     except Exception as e:
-        return {'company': query, 'error': f'Wikipedia API error: {e}'}
+        print(f"Error in duckduckgo_search: {e}")
+        return json.dumps([])
 
 def scrape_website(url: str) -> str:
-    """Fetches and returns the main textual content from a given URL."""
+    print(f"--- Scraping: {url} ---")
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0',
-        }
-        time.sleep(random.uniform(1, 3))
-        response = requests.get(url, headers=headers, timeout=15)
+        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
-        for element in soup(['script', 'style', 'nav', 'header', 'footer', 'aside']):
-            element.decompose()
-        main_content = ""
-        for tag in ['main', 'article', 'div[class*="content"]', 'div[class*="main"]']:
-            content = soup.select_one(tag)
-            if content:
-                main_content = content.get_text(separator=' ', strip=True)
-                break
-        if not main_content:
-            main_content = soup.get_text(separator=' ', strip=True)
-        main_content = ' '.join(main_content.split())[:2000]
-        return {
-            'url': url,
-            'title': soup.title.get_text() if soup.title else '',
-            'content': main_content,
-            'status': 'success'
-        }
+        for script in soup(["script", "style", "nav", "footer", "header"]):
+            script.extract()
+        text = soup.get_text(separator=' ', strip=True)
+        return json.dumps({"url": url, "content": text[:4000]})
     except Exception as e:
-        return {
-            'url': url,
-            'error': str(e),
-            'status': 'error'
-        }
+        print(f"Error scraping website {url}: {e}")
+        return json.dumps({"url": url, "error": str(e)})
 
 def generate_industry_competitors(industry: str, company_description: str) -> str:
-    """Identifies and generates a list of key competitors for a given industry and target company/idea description."""
-    industry_competitors = {
-        'streaming': [
-            {'name': 'Netflix', 'pricing': '$8.99-$17.99', 'features': 'Original content, Global reach', 'subscribers': 220, 'revenue': 31.5},
-            {'name': 'Disney+', 'pricing': '$7.99', 'features': 'Disney content, Family focus', 'subscribers': 150, 'revenue': 8.4},
-            {'name': 'Amazon Prime Video', 'pricing': '$8.99', 'features': 'Prime membership, Diverse content', 'subscribers': 200, 'revenue': 35.2},
-            {'name': 'HBO Max', 'pricing': '$9.99', 'features': 'HBO content, Premium quality', 'subscribers': 80, 'revenue': 5.8},
-            {'name': 'Hulu', 'pricing': '$5.99-$11.99', 'features': 'TV shows, Ad-supported option', 'subscribers': 45, 'revenue': 3.2},
-            {'name': 'Apple TV+', 'pricing': '$4.99', 'features': 'Apple originals, High quality', 'subscribers': 25, 'revenue': 1.8}
-        ],
-        'financial services': [
-            {'name': 'Vanguard', 'pricing': '0.03%-0.20%', 'features': 'Low-cost index funds, Retirement planning', 'market_share': 25, 'revenue': 8.5},
-            {'name': 'Charles Schwab', 'pricing': '$0-$4.95', 'features': 'Commission-free trading, Research tools', 'market_share': 20, 'revenue': 7.2},
-            {'name': 'Fidelity Investments', 'pricing': '$0-$4.95', 'features': 'Low-cost funds, Retirement planning tools', 'market_share': 18, 'revenue': 6.8},
-            {'name': 'T. Rowe Price', 'pricing': '0.50%-1.25%', 'features': 'Active management, Research', 'market_share': 15, 'revenue': 5.1},
-            {'name': 'BlackRock', 'pricing': '0.03%-0.50%', 'features': 'iShares ETFs, Institutional', 'market_share': 12, 'revenue': 4.9}
-        ]
+    """
+    Finds real competitors for a company or idea using web search only.
+    NO HARDCODED COMPETITORS OR LLM-ONLY FALLBACKS ALLOWED.
+    Returns a JSON array of competitor names.
+    """
+    print(f"--- Finding competitors for: '{company_description}' in '{industry}' ---")
+    query = f"top competitors of {company_description} in {industry} industry"
+    try:
+        # Use DuckDuckGo search for real competitors
+        with DDGS() as ddgs:
+            results = [r for r in ddgs.text(query, max_results=10)]
+        # Extract company names from titles/snippets using regex or simple parsing
+        import re
+        competitors = set()
+        for r in results:
+            # Try to extract company names from title and body
+            text = (r.get('title', '') + ' ' + r.get('body', ''))
+            # Look for patterns like "X, Y, Z, and W" or lists
+            found = re.findall(r'([A-Z][A-Za-z0-9&\-. ]{2,})', text)
+            # Filter out the original company and generic words
+            for name in found:
+                name_clean = name.strip().replace('\n', '').replace('\r', '')
+                if (name_clean.lower() not in company_description.lower()
+                    and name_clean.lower() not in industry.lower()
+                    and len(name_clean) > 2
+                    and not name_clean.lower().startswith('top ')
+                    and not name_clean.lower().startswith('best ')
+                    and not name_clean.lower().startswith('competitors')):
+                    competitors.add(name_clean)
+        # Return up to 8 unique competitors
+        competitors_list = list(competitors)[:8]
+        print(f"--- Found competitors: {competitors_list} ---")
+        return json.dumps(competitors_list)
+    except Exception as e:
+        print(f"Error finding competitors: {e}")
+        return json.dumps([])
+
+def search_company_info(company_name: str, query_type: str = "general") -> str:
+    """
+    Performs web search to find specific information about a company.
+    The agent can use this to get real-time data about competitors.
+    """
+    print(f"--- Searching for {query_type} info about: {company_name} ---")
+    
+    queries = {
+        "general": f"{company_name} company overview",
+        "features": f"{company_name} features products services",
+        "pricing": f"{company_name} pricing plans costs",
+        "market": f"{company_name} market position competitors"
     }
     
-    if industry.lower() in industry_competitors:
-        competitors = industry_competitors[industry.lower()]
-    else:
-        competitors = [
-            {'name': f'{industry} Competitor 1', 'pricing': '$10-$50', 'features': 'Core features', 'market_share': 30, 'revenue': 1.0},
-            {'name': f'{industry} Competitor 2', 'pricing': '$15-$75', 'features': 'Advanced features', 'market_share': 25, 'revenue': 0.8},
-            {'name': f'{industry} Competitor 3', 'pricing': '$5-$25', 'features': 'Budget option', 'market_share': 20, 'revenue': 0.5},
-            {'name': f'{industry} Competitor 4', 'pricing': '$20-$100', 'features': 'Premium features', 'market_share': 15, 'revenue': 1.2}
-        ]
-    return str(competitors)
+    query = queries.get(query_type, f"{company_name} {query_type}")
+    search_results = duckduckgo_search(query, num_results=5)
+    
+    return search_results
 
-def create_comprehensive_plots(df, company_name, industry, plot_path: str):
-    """Create comprehensive visualization plots for CI analysis."""
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
-    if 'pricing' in df.columns:
-        prices = []
-        for p in df['pricing']:
-            try:
-                price = float(str(p).split('-')[0].replace('$', '').replace(',', ''))
-                prices.append(price)
-            except:
-                prices.append(0)
-        ax1.bar(df['name'], prices)
-        ax1.set_title('Pricing Comparison')
-        ax1.set_ylabel('Price ($)')
-        ax1.tick_params(axis='x', rotation=45)
-    if 'subscribers' in df.columns:
-        ax2.pie(df['subscribers'], labels=df['name'], autopct='%1.1f%%')
-        ax2.set_title('Market Share (Subscribers)')
-    elif 'revenue' in df.columns:
-        ax2.pie(df['revenue'], labels=df['name'], autopct='%1.1f%%')
-        ax2.set_title('Market Share (Revenue)')
-    feature_counts = [len(str(f).split(',')) for f in df.get('features', [])]
-    ax3.bar(df['name'], feature_counts)
-    ax3.set_title('Feature Count Comparison')
-    ax3.set_ylabel('Number of Features')
-    ax3.tick_params(axis='x', rotation=45)
-    if 'subscribers' in df.columns or 'revenue' in df.columns:
-        y_values = df.get('subscribers', df.get('revenue', [1]*len(df)))
-        ax4.scatter(prices, y_values, s=100, alpha=0.7)
-        ax4.set_xlabel('Price ($)')
-        ax4.set_ylabel('Market Size')
-        ax4.set_title('Competitive Positioning')
-        for i, name in enumerate(df['name']):
-            ax4.annotate(name, (prices[i], y_values[i]), xytext=(5, 5), textcoords='offset points')
-    plt.tight_layout()
-    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-    plt.close()
+def get_company_website_data(company_name: str) -> str:
+    """
+    Attempts to find and scrape the company's official website for current information.
+    """
+    print(f"--- Getting website data for: {company_name} ---")
+    
+    # Search for official website
+    website_query = f"{company_name} official website"
+    search_results = json.loads(duckduckgo_search(website_query, 3))
+    
+    if not search_results:
+        return json.dumps({"error": "No website found"})
+    
+    # Try to scrape the first result
+    try:
+        website_url = search_results[0].get('link', search_results[0].get('url', ''))
+        if website_url:
+            scraped_data = scrape_website(website_url)
+            return scraped_data
+    except Exception as e:
+        print(f"Error scraping website: {e}")
+    
+    return json.dumps({"error": "Could not scrape website"})
+
+def analyze_competitor_data(company_name: str, industry: str) -> str:
+    """
+    Comprehensive analysis tool that combines multiple data sources.
+    The agent can use this to get a complete picture of a competitor.
+    """
+    print(f"--- Analyzing data for: {company_name} ---")
+    
+    # Get multiple data sources
+    general_info = json.loads(search_company_info(company_name, "general"))
+    features_info = json.loads(search_company_info(company_name, "features"))
+    pricing_info = json.loads(search_company_info(company_name, "pricing"))
+    website_data = json.loads(get_company_website_data(company_name))
+    
+    # Use GPT to synthesize the data
+    synthesis_prompt = f"""
+    Based on the following data sources, create a comprehensive analysis for {company_name} in the {industry} industry.
+    
+    General Info: {general_info}
+    Features Info: {features_info}
+    Pricing Info: {pricing_info}
+    Website Data: {website_data}
+    
+    Return a JSON object with:
+    {{
+        "name": "{company_name}",
+        "pricing_model": "Brief pricing description",
+        "key_features": "Main features/offerings",
+        "market_position": "Market position description",
+        "target_audience": "Primary target audience",
+        "data_sources": "Number of data sources used"
+    }}
+    """
+    
+    try:
+        analysis_str = get_llm_response(synthesis_prompt)
+        analysis_str = analysis_str.strip()
+        if analysis_str.startswith('```json'):
+            analysis_str = analysis_str[7:-3]
+        elif analysis_str.startswith('```'):
+            analysis_str = analysis_str[3:-3]
+        
+        analysis = json.loads(analysis_str)
+        return json.dumps(analysis)
+        
+    except Exception as e:
+        print(f"Error in analysis: {e}")
+        return json.dumps({
+            "name": company_name,
+            "pricing_model": "Information not available",
+            "key_features": "Information not available",
+            "market_position": "Information not available",
+            "target_audience": "Information not available",
+            "data_sources": 0
+        })
 
 def collect_comprehensive_ci_data(company_name: str, industry: str) -> str:
-    """Collects extensive competitive intelligence data for a given company and industry."""
-    search_query = f"top competitors of {company_name} {industry}"
-    search_results = duckduckgo_search(search_query)
-    wiki_info = get_wikipedia_info(company_name)
-    competitors = generate_industry_competitors(industry, company_name)
-    df = pd.DataFrame(eval(competitors))
+    """
+    The main data collection tool that the agent uses for each competitor.
+    This combines multiple tools to get comprehensive data.
+    """
+    print(f"--- Collecting comprehensive data for: {company_name} ---")
     
-    # Save to coding directory
-    csv_path = 'coding/ci_analysis_data.csv'
-    plot_path = 'coding/ci_analysis_plot.png'
+    # Use the analysis tool to get comprehensive data
+    analysis_result = analyze_competitor_data(company_name, industry)
+    company_data = json.loads(analysis_result)
     
-    # Ensure coding directory exists
-    os.makedirs('coding', exist_ok=True)
+    # Save to CSV
+    file_path = "coding/ci_analysis_data.csv"
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    df_new_row = pd.DataFrame([company_data])
     
-    df.to_csv(csv_path, index=False)
-    create_comprehensive_plots(df, company_name, industry, plot_path)
+    if os.path.exists(file_path):
+        df = pd.read_csv(file_path)
+        df = pd.concat([df, df_new_row], ignore_index=True)
+    else:
+        df = df_new_row
+        
+    df.to_csv(file_path, index=False)
     
-    return {
-        'company': company_name,
-        'industry': industry,
-        'search_results': search_results,
-        'wikipedia_info': wiki_info,
-        'competitors': competitors
-    } 
+    return f"Successfully collected and saved comprehensive data for {company_name}." 

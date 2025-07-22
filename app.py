@@ -14,21 +14,27 @@ import requests
 from bs4 import BeautifulSoup
 import json
 import sys
+import warnings
+
+# Suppress deprecation warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
 
 # Import tool functions
 from tools.ci_tools import (
     duckduckgo_search,
-    get_wikipedia_info,
     scrape_website,
     generate_industry_competitors,
+    search_company_info,
+    get_company_website_data,
+    analyze_competitor_data,
     collect_comprehensive_ci_data
 )
 
-# autogen configuration
+# autogen configuration - using newer API
 try:
-    config_list = autogen.config_list_from_json(
-        "OAI_CONFIG_LIST",
-    )
+    llm_config = autogen.LLMConfig.from_json(path="OAI_CONFIG_LIST")
+    config_list = llm_config.config_list
 except FileNotFoundError:
     st.error("Error: OAI_CONFIG_LIST file not found. Please create it in the project root with your OpenAI API key.")
     st.stop()
@@ -44,51 +50,8 @@ llm_config_ci_analyst = {
         {
             "type": "function",
             "function": {
-                "name": "duckduckgo_search",
-                "description": "Performs a DuckDuckGo web search and returns a summary of top results. Useful for general research, finding company info, news, or competitor websites.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": "The search query."},
-                        "num_results": {"type": "integer", "description": "Number of top results to return."},
-                    },
-                    "required": ["query"],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "get_wikipedia_info",
-                "description": "Fetches concise background information for a given entity from Wikipedia.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": "The entity name to search on Wikipedia."},
-                    },
-                    "required": ["query"],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "scrape_website",
-                "description": "Fetches and returns the main textual content from a given URL. Use this after finding a relevant URL via search.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "url": {"type": "string", "description": "The full URL to scrape."},
-                    },
-                    "required": ["url"],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
                 "name": "generate_industry_competitors",
-                "description": "Identifies and generates a list of key competitors for a given industry and target company/idea description.",
+                "description": "Identifies relevant competitors for any company or idea using GPT knowledge. Use this FIRST to get a list of competitors.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -102,15 +65,88 @@ llm_config_ci_analyst = {
         {
             "type": "function",
             "function": {
-                "name": "collect_comprehensive_ci_data",
-                "description": "Collects extensive competitive intelligence data for a given company and industry. This involves multiple sub-queries and aggregations.",
+                "name": "search_company_info",
+                "description": "Performs web search to find specific information about a company. Use for real-time data about competitors.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "company_name": {"type": "string", "description": "The name of the company to analyze."},
+                        "company_name": {"type": "string", "description": "The name of the company to search for."},
+                        "query_type": {"type": "string", "description": "Type of info to search: 'general', 'features', 'pricing', or 'market'."},
+                    },
+                    "required": ["company_name"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_company_website_data",
+                "description": "Finds and scrapes the company's official website for current information. Use for detailed company data.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "company_name": {"type": "string", "description": "The name of the company to get website data for."},
+                    },
+                    "required": ["company_name"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "analyze_competitor_data",
+                "description": "Comprehensive analysis tool that combines multiple data sources for a complete picture of a competitor.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "company_name": {"type": "string", "description": "The name of the competitor to analyze."},
+                        "industry": {"type": "string", "description": "The industry context for the analysis."},
+                    },
+                    "required": ["company_name", "industry"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "collect_comprehensive_ci_data",
+                "description": "Main data collection tool that saves competitor data to CSV. Use this for each competitor after analysis.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "company_name": {"type": "string", "description": "The name of the competitor to collect data for."},
                         "industry": {"type": "string", "description": "The industry of the company."},
                     },
                     "required": ["company_name", "industry"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "duckduckgo_search",
+                "description": "General web search tool. Use for finding news, articles, or specific information about companies.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "The search query."},
+                        "num_results": {"type": "integer", "description": "Number of results to return."},
+                    },
+                    "required": ["query"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "scrape_website",
+                "description": "Scrapes content from a specific URL. Use after finding relevant URLs via search.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string", "description": "The full URL to scrape."},
+                    },
+                    "required": ["url"],
                 },
             },
         },
@@ -121,29 +157,35 @@ llm_config_ci_analyst = {
 ci_analyst = autogen.AssistantAgent(
     name="ci_analyst",
     llm_config=llm_config_ci_analyst,
-    system_message="""You are an expert Competitive Intelligence Analyst.
-    Your goal is to provide comprehensive, data-driven competitive analyses for companies or new business ideas.
-    
-    IMPORTANT: You MUST use the available tools to gather real data. Do not make up information or plan without executing.
-    
-    Available tools:
-    - `duckduckgo_search(query)`: For general web research, finding company websites, news, and initial competitor identification.
-    - `get_wikipedia_info(query)`: To get concise background information from Wikipedia.
-    - `scrape_website(url)`: To extract the main text content from any given URL.
-    - `generate_industry_competitors(industry, company_description)`: To specifically identify competitors within a given industry.
-    - `collect_comprehensive_ci_data(company_name, industry)`: To collect extensive competitive intelligence data.
+    system_message="""You are an expert Competitive Intelligence Analyst with access to multiple specialized tools.
 
-    EXECUTION RULES:
-    1. Start by using tools to gather factual data about the company/industry
-    2. Use tools to identify and research competitors
-    3. Use tools to collect comprehensive market data
-    4. Only after gathering real data, synthesize findings into a comprehensive report
-    5. Output tool calls in the exact format expected by AutoGen
-    6. Do not plan or discuss - EXECUTE tools immediately
-    7. After completing the analysis, end your response with "TERMINATE"
+    **TOOL SELECTION STRATEGY:**
     
-    When you need to use a tool, output ONLY the tool call in the correct JSON format.
-    After collecting data, create a comprehensive analysis report and end with TERMINATE.
+    1. **Competitor Identification**: Use `generate_industry_competitors` to get a list of relevant competitors
+    2. **Data Collection Options**:
+       - Use `search_company_info` for quick, specific data (pricing, features, etc.)
+       - Use `get_company_website_data` for detailed company information
+       - Use `analyze_competitor_data` for comprehensive analysis combining multiple sources
+       - Use `duckduckgo_search` for general research and news
+       - Use `scrape_website` for specific URLs you find
+    3. **Data Storage**: Use `collect_comprehensive_ci_data` to save analyzed data to CSV
+
+    **WORKFLOW:**
+    1. **Start**: Use `generate_industry_competitors` to identify competitors
+    2. **For each competitor**: Choose appropriate tools based on what you need:
+       - Quick info → `search_company_info`
+       - Detailed analysis → `analyze_competitor_data`
+       - Website data → `get_company_website_data`
+    3. **Save results**: Use `collect_comprehensive_ci_data` to save data
+    4. **Terminate**: End with "TERMINATE"
+
+    **INTELLIGENT DECISIONS:**
+    - Use `search_company_info` with different query_types (general, features, pricing, market)
+    - Combine multiple tools for comprehensive analysis
+    - Choose tools based on the type of information you need
+    - Always save data with `collect_comprehensive_ci_data` after analysis
+
+    Execute tools immediately and make intelligent choices about which tools to use for each task.
     """
 )
 
@@ -161,15 +203,21 @@ data_collector = autogen.UserProxyAgent(
     },
     function_map={
         "duckduckgo_search": duckduckgo_search,
-        "get_wikipedia_info": get_wikipedia_info,
         "scrape_website": scrape_website,
         "generate_industry_competitors": generate_industry_competitors,
+        "search_company_info": search_company_info,
+        "get_company_website_data": get_company_website_data,
+        "analyze_competitor_data": analyze_competitor_data,
         "collect_comprehensive_ci_data": collect_comprehensive_ci_data,
     }
 )
 
 # method to run CI analysis
 def run_ci_analysis(company_input, industry, target_audience, key_features, analysis_type):
+    # Clear old CI data before starting a new analysis
+    csv_path = "coding/ci_analysis_data.csv"
+    if os.path.exists(csv_path):
+        os.remove(csv_path)
     output_capture = io.StringIO()
     with redirect_stdout(output_capture):
         # Initiate the conversation with the CI analyst
@@ -192,13 +240,69 @@ def run_ci_analysis(company_input, industry, target_audience, key_features, anal
         if os.path.exists(csv_path):
             try:
                 df = pd.read_csv(csv_path)
+
+                # ---- NEW: Add this validation block ----
+                if df.empty or 'name' not in df.columns:
+                    report_summary = "Analysis complete, but no competitor data could be identified."
+                    st.session_state.key_findings = "No competitor data was found for the given query."
+                    st.session_state.competitor_matrix = pd.DataFrame()
+                    return output_capture.getvalue(), report_summary
+
+                # Heuristic to check for placeholder data
+                if df['name'].str.contains('Competitor 1|Placeholder', case=False).any():
+                    report_summary = "The analysis resulted in placeholder data. This can happen for very generic ideas where specific competitors could not be found via automated search. Please try a more specific query or a well-known company."
+                    st.session_state.key_findings = "Analysis found only placeholder data."
+                    st.session_state.competitor_matrix = pd.DataFrame()
+                    return output_capture.getvalue(), report_summary
+                # ---- END of new validation block ----
+
+                # Populate session state with actual data
+                st.session_state.key_findings = f"""
+                - **Market Position**: {company_input} competes with {len(df)} major competitors
+                - **Top Competitors**: {', '.join(df['name'].head(3).tolist())}
+                - **Market Dynamics**: Analysis shows competitive landscape in {industry}
+                """
+
+                # Revenue range handling
+                if 'revenue' in df.columns and pd.api.types.is_numeric_dtype(df['revenue']):
+                    min_revenue = df['revenue'].min()
+                    max_revenue = df['revenue'].max()
+                else:
+                    min_revenue = max_revenue = 0
+                st.session_state.key_findings += f"- **Revenue Range**: ${min_revenue:.1f}B - ${max_revenue:.1f}B\n"
+                
+                st.session_state.competitor_matrix = df
+                
+                # Handle missing columns gracefully
+                market_share_col = 'market_share' if 'market_share' in df.columns else None
+                pricing_col = 'pricing' if 'pricing' in df.columns else 'features'
+                
+                st.session_state.market_positioning = f"""
+                **Market Share Analysis:**
+                - {df.iloc[0]['name']}: {df.iloc[0].get(market_share_col, 'N/A')}% market share
+                - {df.iloc[1]['name']}: {df.iloc[1].get(market_share_col, 'N/A')}% market share  
+                - {df.iloc[2]['name']}: {df.iloc[2].get(market_share_col, 'N/A')}% market share
+                
+                **Pricing Strategy:**
+                - {df.iloc[0]['name']}: {df.iloc[0][pricing_col]}
+                - {df.iloc[1]['name']}: {df.iloc[1][pricing_col]}
+                - {df.iloc[2]['name']}: {df.iloc[2][pricing_col]}
+                """
+                
+                st.session_state.recommendations = f"""
+                **Strategic Recommendations for {company_input}:**
+                
+                1. **Competitive Pricing**: Analyze pricing strategies of {df.iloc[0]['name']} and {df.iloc[1]['name']}
+                2. **Feature Differentiation**: Focus on unique features not offered by competitors
+                3. **Market Expansion**: Target underserved segments in {industry}
+                4. **Technology Investment**: Leverage technology to improve customer experience
+                5. **Partnership Opportunities**: Consider strategic partnerships in {industry}
+                """
+                
                 report_summary = f"""# Competitive Intelligence Report for {company_input}
 
 ## Executive Summary
 Comprehensive analysis of {company_input} in the {industry} industry.
-
-## Competitor Analysis
-{df.to_html(index=False)}
 
 ## Key Findings
 - **Market Position**: {company_input} competes with {len(df)} major competitors
@@ -218,7 +322,7 @@ Based on the collected data, strategic recommendations have been generated for {
 # --- streamlit UI ---
 st.set_page_config(layout="wide")
 
-st.title("🔍 AutoGen Competitive Intelligence Assistant")
+st.title("Competitive Intelligence Assistant")
 st.markdown("""
 This assistant uses AutoGen agents to perform comprehensive competitive intelligence analysis:
 1. Research and identify competitors for your company or idea
@@ -275,6 +379,18 @@ if st.button("Run CI Analysis", key="run_button"):
 st.subheader("Competitive Intelligence Report")
 st.markdown(st.session_state.ci_report_content)
 
+# Add this section for Competitor Analysis Table
+st.subheader("Competitor Analysis")
+csv_path = "coding/ci_analysis_data.csv"
+if os.path.exists(csv_path):
+    try:
+        df = pd.read_csv(csv_path)
+        st.dataframe(df)
+    except Exception as e:
+        st.error(f"Error loading competitor data: {e}")
+else:
+    st.info("Competitor data will appear here after analysis.")
+
 # add new sections for better organization
 col1, col2 = st.columns(2)
 
@@ -315,6 +431,7 @@ if os.path.exists(image_path):
             b64_img = base64.b64encode(img_file.read()).decode()
         col1.markdown(f'<img src="data:image/png;base64,{b64_img}" alt="CI Analysis Plot" style="width:100%;">', unsafe_allow_html=True)
         col1.caption("Competitive Intelligence Analysis Plot")
+        col1.success("✅ Visualization generated successfully!")
     except Exception as e:
         col1.error(f"Error displaying image: {e}")
 else:

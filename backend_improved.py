@@ -1,6 +1,7 @@
 import os
 import io
 import pandas as pd
+import re
 from contextlib import redirect_stdout
 from tools.ci_tools import (
     duckduckgo_search,
@@ -13,6 +14,144 @@ from tools.ci_tools import (
 )
 import autogen
 from autogen.coding import LocalCommandLineCodeExecutor
+
+def extract_revenue_value(revenue_str):
+    """Extract numeric value from revenue string like '$31.797B' or '$31.797 billion'"""
+    if pd.isna(revenue_str) or revenue_str == 'N/A':
+        return None
+    
+    # Handle different formats
+    patterns = [
+        r'[\$]?([\d,]+\.?\d*)\s*[Bb]',  # $31.797B or 31.797B
+        r'[\$]?([\d,]+\.?\d*)\s*billion',  # $31.797 billion
+        r'[\$]?([\d,]+\.?\d*)\s*[Mm]',  # $540M
+        r'[\$]?([\d,]+\.?\d*)\s*million'  # $540 million
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, revenue_str, re.IGNORECASE)
+        if match:
+            value = float(match.group(1).replace(',', ''))
+            # Convert to billions for comparison
+            if 'million' in revenue_str.lower() or 'M' in revenue_str.upper():
+                value = value / 1000
+            return value
+    return None
+
+def extract_market_share_value(share_str):
+    """Extract numeric value from market share string like '45%' or '45.52%'"""
+    if pd.isna(share_str) or share_str == 'N/A':
+        return None
+    
+    match = re.search(r'(\d+(?:\.\d+)?)%', share_str)
+    if match:
+        return float(match.group(1))
+    return None
+
+def analyze_competitor_data_enhanced(df, company_input, industry):
+    """Enhanced analysis of competitor data to generate specific insights"""
+    
+    # Extract revenue data
+    revenue_data = []
+    for _, row in df.iterrows():
+        revenue_val = extract_revenue_value(row.get('revenue', 'N/A'))
+        if revenue_val is not None:
+            revenue_data.append({
+                'name': row['name'],
+                'revenue': revenue_val,
+                'revenue_str': row.get('revenue', 'N/A')
+            })
+    
+    # Extract market share data
+    market_share_data = []
+    for _, row in df.iterrows():
+        share_val = extract_market_share_value(row.get('market_share', 'N/A'))
+        if share_val is not None:
+            market_share_data.append({
+                'name': row['name'],
+                'share': share_val,
+                'share_str': row.get('market_share', 'N/A')
+            })
+    
+    # Analyze pricing models
+    pricing_models = df['pricing_model'].value_counts()
+    
+    # Analyze target audiences
+    audiences = df['target_audience'].value_counts()
+    
+    # Generate specific key findings
+    key_findings = [
+        f"{company_input} operates in a highly competitive {industry} market with {len(df)} major competitors."
+    ]
+    
+    if revenue_data:
+        avg_revenue = sum(r['revenue'] for r in revenue_data) / len(revenue_data)
+        top_revenue = max(revenue_data, key=lambda x: x['revenue'])
+        key_findings.append(f"Revenue analysis: Average competitor revenue is ${avg_revenue:.1f}B, with {top_revenue['name']} leading at {top_revenue['revenue_str']}.")
+    
+    if market_share_data:
+        top_share = max(market_share_data, key=lambda x: x['share'])
+        key_findings.append(f"Market concentration: {top_share['name']} dominates with {top_share['share_str']} market share.")
+    
+    # Generate specific opportunities
+    opportunities = []
+    if len(pricing_models) > 1:
+        opportunities.append(f"Pricing diversification: Competitors use {len(pricing_models)} different pricing approaches.")
+    
+    if len(audiences) > 1:
+        opportunities.append(f"Market segmentation: Competitors target {len(audiences)} distinct customer segments.")
+    
+    opportunities.extend([
+        f"Technology differentiation: Leverage {company_input}'s unique technical capabilities.",
+        "Geographic expansion: Many competitors have limited global presence.",
+        "Feature innovation: Identify gaps in competitor offerings."
+    ])
+    
+    # Generate specific threats
+    threats = []
+    if market_share_data:
+        high_share_count = len([m for m in market_share_data if m['share'] > 20])
+        if high_share_count > 0:
+            threats.append(f"Market concentration: {high_share_count} competitors hold significant market share (>20%).")
+    
+    threats.extend([
+        f"Regulatory pressure: {industry} faces increasing compliance requirements.",
+        "Technology disruption: Rapid innovation creates constant competitive pressure.",
+        "Customer switching costs: Established competitors have strong customer lock-in."
+    ])
+    
+    # Generate specific recommendations
+    recommendations = []
+    if revenue_data:
+        top_revenue = max(revenue_data, key=lambda x: x['revenue'])
+        recommendations.append(f"Revenue optimization: Analyze pricing strategies of top revenue generators like {top_revenue['name']}.")
+    
+    if market_share_data:
+        top_share = max(market_share_data, key=lambda x: x['share'])
+        recommendations.append(f"Market positioning: Focus on segments underserved by {top_share['name']}.")
+    
+    recommendations.extend([
+        f"Feature differentiation: Identify unique capabilities not offered by competitors.",
+        f"Partnership strategy: Explore alliances with complementary {industry} players.",
+        "Technology investment: Maintain competitive advantage through innovation.",
+        "Customer experience: Focus on areas where competitors underperform."
+    ])
+    
+    # Generate market position summary
+    market_position = f"{company_input} competes in the {industry} sector against {len(df)} major players. "
+    if revenue_data:
+        market_position += f"The competitive landscape shows revenue ranging from ${min(r['revenue'] for r in revenue_data):.1f}B to ${max(r['revenue'] for r in revenue_data):.1f}B. "
+    if market_share_data:
+        market_position += f"Market concentration varies significantly, with top players holding {', '.join([m['share_str'] for m in market_share_data[:2]])} market share. "
+    market_position += f"Competitors use {len(pricing_models)} different pricing models and target {len(audiences)} distinct market segments, indicating opportunities for differentiation."
+    
+    return {
+        "keyFindings": key_findings,
+        "opportunities": opportunities,
+        "threats": threats,
+        "marketPosition": market_position,
+        "recommendations": recommendations
+    }
 
 def run_ci_analysis(company_input, industry, target_audience, key_features, analysis_type):
     print(f"[CI] Starting analysis for: {company_input} in {industry}")
@@ -161,30 +300,11 @@ When you have collected all the data, say "TERMINATE" to end the analysis."""
                     print(f"[CI] Placeholder data detected in CSV.")
                     summary["keyFindings"] = ["The analysis resulted in placeholder data. This can happen for very generic ideas where specific competitors could not be found via automated search. Please try a more specific query or a well-known company."]
                     return output_capture.getvalue(), summary
-                # Synthesize summary fields from the DataFrame
-                summary["keyFindings"] = [
-                    f"{company_input} competes with {len(df)} major competitors in {industry}.",
-                    f"Top competitors: {', '.join(df['name'].head(3).tolist())}.",
-                    f"Market dynamics show a competitive landscape in {industry}."
-                ]
-                summary["opportunities"] = [
-                    "Expand into underserved market segments.",
-                    "Leverage technology for differentiation.",
-                    "Pursue strategic partnerships."
-                ]
-                summary["threats"] = [
-                    "Intense competition from established players.",
-                    "Potential regulatory changes.",
-                    "Market saturation in core segments."
-                ]
-                summary["marketPosition"] = f"{company_input} is positioned among key competitors in the {industry} industry, with unique features and pricing strategies."
-                summary["recommendations"] = [
-                    f"Analyze pricing strategies of top competitors.",
-                    f"Focus on unique features not offered by competitors.",
-                    f"Target underserved segments in {industry}.",
-                    f"Leverage technology to improve customer experience.",
-                    f"Consider strategic partnerships in {industry}."
-                ]
+                
+                # Use enhanced analysis
+                enhanced_summary = analyze_competitor_data_enhanced(df, company_input, industry)
+                summary.update(enhanced_summary)
+                
             except Exception as e:
                 print(f"[CI] Error reading CSV: {e}")
                 summary["keyFindings"] = [f"Error reading data file: {e}"]

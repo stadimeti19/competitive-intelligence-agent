@@ -4,6 +4,7 @@ import { CompetitorCard } from "@/components/CompetitorCard";
 import { FeatureMatrix } from "@/components/FeatureMatrix";
 import { PricingTable } from "@/components/PricingTable";
 import { ExecutiveSummary } from "@/components/ExecutiveSummary";
+import { ChartDisplay } from "@/components/ChartDisplay";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -11,14 +12,48 @@ import { Download, FileText, BarChart3 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import axios from "axios";
 
+interface SummaryData {
+  keyFindings: string[];
+  opportunities: string[];
+  threats: string[];
+  marketPosition: string;
+  recommendations: string[];
+  charts: Record<string, string>;
+}
+
+interface CompetitorData {
+  name: string;
+  pricing_model: string;
+  key_features: string;
+  market_position: string;
+  target_audience: string;
+  revenue: string;
+  market_share: string;
+  pricing_tiers: string;
+  data_sources: number;
+}
+
+interface FeatureData {
+  name: string;
+  features: string;
+}
+
+interface PricingData {
+  name: string;
+  model: string;
+  tiers: string;
+  revenue: string;
+}
+
 export const Dashboard = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [hasResults, setHasResults] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [summary, setSummary] = useState<any>(null);
-  const [competitors, setCompetitors] = useState<any[]>([]);
-  const [features, setFeatures] = useState<any[]>([]);
-  const [pricing, setPricing] = useState<any[]>([]);
+  const [summary, setSummary] = useState<SummaryData | null>(null);
+  const [competitors, setCompetitors] = useState<CompetitorData[]>([]);
+  const [features, setFeatures] = useState<FeatureData[]>([]);
+  const [pricing, setPricing] = useState<PricingData[]>([]);
+  const [charts, setCharts] = useState<Record<string, string>>({});
   const { toast } = useToast();
 
   const handleAnalysis = async (data: AnalysisData) => {
@@ -42,6 +77,7 @@ export const Dashboard = () => {
       setCompetitors(response.data.competitors);
       setFeatures(response.data.features);
       setPricing(response.data.pricing);
+      setCharts(response.data.summary?.charts || {});
       setHasResults(true);
       setProgress(100);
       toast({
@@ -136,6 +172,8 @@ export const Dashboard = () => {
               />
 
               <PricingTable pricingData={pricing} />
+
+              <ChartDisplay charts={charts} />
             </>
           )}
         </div>

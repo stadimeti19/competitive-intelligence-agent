@@ -5,7 +5,8 @@ import os
 import pandas as pd
 import numpy as np
 from tools.ci_tools import *
-from backend_improved import run_ci_analysis
+from backend_visualized import run_ci_analysis
+from fastapi.responses import FileResponse
 
 app = FastAPI()
 
@@ -31,11 +32,11 @@ def safe_json_value(value):
 async def analyze(request: Request):
     data = await request.json()
     # Map frontend fields to backend function
-    company_name = data.get("companyName")
+    company_name = data.get("companyName") or data.get("company_name")
     industry = data.get("industry")
-    target_audience = data.get("targetAudience", "")
-    key_features = data.get("keyFeatures", "")
-    analysis_type = data.get("analysisType", "Full CI Report")
+    target_audience = data.get("targetAudience") or data.get("target_audience", "")
+    key_features = data.get("keyFeatures") or data.get("key_features", "")
+    analysis_type = data.get("analysisType") or data.get("analysis_type", "Full CI Report")
     # Call the CI agent logic
     log, report = run_ci_analysis(company_name, industry, target_audience, key_features, analysis_type)
     # Load the CSV and parse for competitors, features, pricing, etc.
@@ -93,6 +94,13 @@ async def analyze(request: Request):
         "pricing": pricing,
         "log": log,
     }
+
+@app.get("/charts/{chart_type}")
+async def get_chart(chart_type: str):
+    chart_path = f"coding/{chart_type}.png"
+    if os.path.exists(chart_path):
+        return FileResponse(chart_path)
+    return {"error": "Chart not found"}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000) 

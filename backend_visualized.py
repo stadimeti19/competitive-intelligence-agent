@@ -20,25 +20,55 @@ from autogen.coding import LocalCommandLineCodeExecutor
 def create_revenue_chart(revenue_data, company_input, industry):
     if not revenue_data:
         return None
-    plt.figure(figsize=(12, 6))
-    names = [r['name'] for r in revenue_data]
-    revenues = [r['revenue'] for r in revenue_data]
-    bars = plt.bar(range(len(names)), revenues, color='skyblue', edgecolor='navy', alpha=0.7)
-    for i, name in enumerate(names):
-        if company_input.lower() in name.lower():
-            bars[i].set_color('orange')
-            bars[i].set_alpha(0.9)
-    plt.title(f'Revenue Comparison - {industry} Market', fontsize=16, fontweight='bold')
-    plt.xlabel('Companies', fontsize=12)
-    plt.ylabel('Revenue (Billions USD)', fontsize=12)
-    plt.xticks(range(len(names)), names, rotation=45, ha='right')
-    plt.grid(axis='y', alpha=0.3)
-    for i, revenue in enumerate(revenues):
-        plt.text(i, revenue + max(revenues) * 0.01, f'${revenue:.1f}B', ha='center', va='bottom', fontweight='bold')
-    plt.tight_layout()
-    plt.savefig('coding/revenue_comparison.png', dpi=300, bbox_inches='tight')
-    plt.close()
-    return 'coding/revenue_comparison.png'
+    
+    try:
+        # Filter out very small values to make the chart more readable
+        max_revenue = max(r['revenue'] for r in revenue_data)
+        min_threshold = max_revenue * 0.001  # Only show companies with at least 0.1% of max revenue
+        
+        filtered_data = [r for r in revenue_data if r['revenue'] >= min_threshold]
+        
+        if len(filtered_data) < 2:
+            return None
+        
+        plt.figure(figsize=(12, 6))
+        names = [r['name'] for r in filtered_data]
+        revenues = [r['revenue'] for r in filtered_data]
+        
+        # Use logarithmic scale for better visualization
+        plt.yscale('log')
+        
+        bars = plt.bar(range(len(names)), revenues, color='skyblue', edgecolor='navy', alpha=0.7)
+        for i, name in enumerate(names):
+            if company_input.lower() in name.lower():
+                bars[i].set_color('orange')
+                bars[i].set_alpha(0.9)
+        
+        plt.title(f'Revenue Comparison - {industry} Market (Log Scale)', fontsize=16, fontweight='bold')
+        plt.xlabel('Companies', fontsize=12)
+        plt.ylabel('Revenue (Billions USD, Log Scale)', fontsize=12)
+        plt.xticks(range(len(names)), names, rotation=45, ha='right')
+        plt.grid(axis='y', alpha=0.3)
+        
+        # Add value labels on bars
+        for i, revenue in enumerate(revenues):
+            if revenue >= 1:  # Show as billions
+                label = f'${revenue:.1f}B'
+            elif revenue >= 0.001:  # Show as millions
+                label = f'${revenue*1000:.1f}M'
+            else:  # Show as thousands
+                label = f'${revenue*1000000:.1f}K'
+            
+            plt.text(i, revenue * 1.1, label, ha='center', va='bottom', fontweight='bold', fontsize=10)
+        
+        plt.tight_layout()
+        plt.savefig('coding/revenue_comparison.png', dpi=300, bbox_inches='tight')
+        plt.close()
+        return 'coding/revenue_comparison.png'
+        
+    except Exception as e:
+        print(f"[CI] Error generating revenue chart: {e}")
+        return None
 
 def create_market_share_chart(market_share_data, company_input, industry):
     if not market_share_data:
@@ -109,38 +139,52 @@ def create_feature_matrix_chart(df, company_input, industry):
     return 'coding/feature_matrix.png'
 
 def extract_revenue_value(revenue_str):
-    if isinstance(revenue_str, str):
-        revenue_str = revenue_str.lower()
+    if not isinstance(revenue_str, str):
+        return None
+    
+    revenue_str = revenue_str.lower().strip()
+    
+    # Handle different formats
+    try:
+        # Remove common prefixes and clean up
+        clean_str = revenue_str.replace('$', '').replace(',', '').replace(' ', '')
+        
+        # Handle billion formats
         if 'billion' in revenue_str or 'b' in revenue_str:
-            try:
-                return float(revenue_str.replace('billion', '').replace('b', '').replace('$', '').replace(',', '')) * 1000
-            except ValueError:
-                pass
+            # Extract the number before 'b' or 'billion'
+            if 'billion' in revenue_str:
+                num_str = revenue_str.split('billion')[0].replace('$', '').replace(',', '').strip()
+            else:
+                num_str = revenue_str.split('b')[0].replace('$', '').replace(',', '').strip()
+            return float(num_str) * 1000
+        
+        # Handle million formats
         elif 'million' in revenue_str or 'm' in revenue_str:
-            try:
-                return float(revenue_str.replace('million', '').replace('m', '').replace('$', '').replace(',', '')) / 1000
-            except ValueError:
-                pass
+            if 'million' in revenue_str:
+                num_str = revenue_str.split('million')[0].replace('$', '').replace(',', '').strip()
+            else:
+                num_str = revenue_str.split('m')[0].replace('$', '').replace(',', '').strip()
+            return float(num_str) / 1000
+        
+        # Handle trillion formats
         elif 'trillion' in revenue_str or 't' in revenue_str:
-            try:
-                return float(revenue_str.replace('trillion', '').replace('t', '').replace('$', '').replace(',', '')) * 1000000
-            except ValueError:
-                pass
-        elif 'billion' in revenue_str or 'b' in revenue_str:
-            try:
-                return float(revenue_str.replace('billion', '').replace('b', '').replace('$', '').replace(',', '')) * 1000
-            except ValueError:
-                pass
-        elif 'million' in revenue_str or 'm' in revenue_str:
-            try:
-                return float(revenue_str.replace('million', '').replace('m', '').replace('$', '').replace(',', '')) / 1000
-            except ValueError:
-                pass
-        elif 'trillion' in revenue_str or 't' in revenue_str:
-            try:
-                return float(revenue_str.replace('trillion', '').replace('t', '').replace('$', '').replace(',', '')) * 1000000
-            except ValueError:
-                pass
+            if 'trillion' in revenue_str:
+                num_str = revenue_str.split('trillion')[0].replace('$', '').replace(',', '').strip()
+            else:
+                num_str = revenue_str.split('t')[0].replace('$', '').replace(',', '').strip()
+            return float(num_str) * 1000000
+        
+        # Try to parse as a plain number (assume billions if large)
+        else:
+            num = float(clean_str)
+            if num > 1000:  # Assume it's already in millions
+                return num / 1000
+            else:
+                return num
+                
+    except (ValueError, AttributeError):
+        return None
+    
     return None
 
 def extract_market_share_value(market_share_str):
@@ -251,7 +295,8 @@ def analyze_competitor_data_enhanced(df, company_input, industry):
     # Generate visualizations
     revenue_data = []
     for _, row in df.iterrows():
-        revenue_val = extract_revenue_value(row.get('revenue', 'N/A'))
+        raw_revenue = row.get('revenue', 'N/A')
+        revenue_val = extract_revenue_value(raw_revenue)
         if revenue_val is not None:
             revenue_data.append({'name': row['name'], 'revenue': revenue_val})
     market_share_data = []

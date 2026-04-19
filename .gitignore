@@ -1,5 +1,6 @@
 # virtual environment
 code_assistant_env/
+.venv/
 
 # api key file
 OAI_CONFIG_LIST

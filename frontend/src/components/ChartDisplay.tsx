@@ -51,8 +51,16 @@ export const ChartDisplay = ({ charts }: ChartDisplayProps) => {
   const { toast } = useToast();
   
     const fetchChart = async (chartType: string) => {
-    if (!charts[chartType as keyof typeof charts]) return;
-    
+    const raw = charts[chartType as keyof typeof charts];
+    if (!raw) return;
+
+    if (typeof raw === "string" && (raw.startsWith("http://") || raw.startsWith("https://"))) {
+      setChartImages((prev) => ({ ...prev, [chartType]: raw }));
+      setLoadingCharts((prev) => ({ ...prev, [chartType]: false }));
+      setErrorCharts((prev) => ({ ...prev, [chartType]: false }));
+      return;
+    }
+
     setLoadingCharts(prev => ({ ...prev, [chartType]: true }));
     setErrorCharts(prev => ({ ...prev, [chartType]: false }));
     
@@ -86,10 +94,9 @@ export const ChartDisplay = ({ charts }: ChartDisplayProps) => {
       }
     });
 
-    // Cleanup function to revoke object URLs
     return () => {
-      Object.values(chartImages).forEach(url => {
-        URL.revokeObjectURL(url);
+      Object.values(chartImages).forEach((url) => {
+        if (url.startsWith("blob:")) URL.revokeObjectURL(url);
       });
     };
   }, [charts]);

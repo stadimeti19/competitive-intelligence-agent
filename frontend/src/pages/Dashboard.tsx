@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AnalysisForm, AnalysisData } from "@/components/AnalysisForm";
 import { CompetitorCard } from "@/components/CompetitorCard";
 import { FeatureMatrix } from "@/components/FeatureMatrix";
@@ -8,9 +8,18 @@ import { ChartDisplay } from "@/components/ChartDisplay";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Download, FileText, BarChart3 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Download, FileText, BarChart3, History } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import axios from "axios";
+
+const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
 interface SummaryData {
   keyFindings: string[];
@@ -45,6 +54,13 @@ interface PricingData {
   revenue: string;
 }
 
+interface SavedRunRow {
+  id: string;
+  created_at: string;
+  company_name: string | null;
+  industry: string | null;
+}
+
 export const Dashboard = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [hasResults, setHasResults] = useState(false);
@@ -54,7 +70,68 @@ export const Dashboard = () => {
   const [features, setFeatures] = useState<FeatureData[]>([]);
   const [pricing, setPricing] = useState<PricingData[]>([]);
   const [charts, setCharts] = useState<Record<string, string>>({});
+  const [savedRuns, setSavedRuns] = useState<SavedRunRow[]>([]);
+  const [savedRunSelection, setSavedRunSelection] = useState<string>("");
   const { toast } = useToast();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await axios.get<{ runs: SavedRunRow[] }>(`${API_BASE}/runs`);
+        if (!cancelled && Array.isArray(res.data?.runs)) {
+          setSavedRuns(res.data.runs);
+        }
+      } catch {
+        /* Backend down or Supabase not configured */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const refreshSavedRuns = async (opts?: { silent?: boolean }) => {
+    try {
+      const res = await axios.get<{ runs: SavedRunRow[] }>(`${API_BASE}/runs`);
+      if (Array.isArray(res.data?.runs)) {
+        setSavedRuns(res.data.runs);
+      }
+    } catch {
+      if (!opts?.silent) {
+        toast({
+          title: "Could not load saved runs",
+          description: "Is the API running and Supabase configured on the server?",
+          variant: "destructive",
+        });
+      }
+    }
+  };
+
+  const loadSavedRun = async (runId: string) => {
+    if (!runId) return;
+    try {
+      const res = await axios.get(`${API_BASE}/runs/${runId}`);
+      setSummary(res.data.summary);
+      setCompetitors(res.data.competitors ?? []);
+      setFeatures(res.data.features ?? []);
+      setPricing(res.data.pricing ?? []);
+      setCharts(res.data.summary?.charts ?? {});
+      setHasResults(true);
+      toast({
+        title: "Loaded saved analysis",
+        description: res.data.input?.companyName
+          ? `${res.data.input.companyName}`
+          : undefined,
+      });
+    } catch {
+      toast({
+        title: "Error",
+        description: "Could not load that saved run.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleAnalysis = async (data: AnalysisData) => {
     setIsAnalyzing(true);
@@ -72,7 +149,7 @@ export const Dashboard = () => {
         });
       }, 400);
       // Call backend API
-      const response = await axios.post("http://localhost:8000/analyze", data);
+      const response = await axios.post(`${API_BASE}/analyze`, data);
       setSummary(response.data.summary);
       setCompetitors(response.data.competitors);
       setFeatures(response.data.features);
@@ -80,9 +157,15 @@ export const Dashboard = () => {
       setCharts(response.data.summary?.charts || {});
       setHasResults(true);
       setProgress(100);
+      if (response.data?.persisted && response.data?.runId) {
+        setSavedRunSelection(response.data.runId);
+        void refreshSavedRuns({ silent: true });
+      }
       toast({
         title: "Analysis Complete",
-        description: "Your competitive intelligence report is ready!",
+        description: response.data?.persisted
+          ? "Report ready and saved to your history."
+          : "Your competitive intelligence report is ready!",
       });
     } catch (err) {
       toast({
@@ -115,6 +198,49 @@ export const Dashboard = () => {
         </div>
 
         <div className="space-y-8">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <History className="w-5 h-5" />
+                Saved analyses
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              {savedRuns.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No saved runs yet. Run an analysis to store it in Supabase (set{" "}
+                  <code className="text-xs bg-muted px-1 rounded">SUPABASE_URL</code> and{" "}
+                  <code className="text-xs bg-muted px-1 rounded">SUPABASE_SERVICE_ROLE_KEY</code>{" "}
+                  for the API).
+                </p>
+              ) : (
+                <Select
+                  value={savedRunSelection}
+                  onValueChange={(id) => {
+                    setSavedRunSelection(id);
+                    void loadSavedRun(id);
+                  }}
+                >
+                  <SelectTrigger className="w-full sm:max-w-md">
+                    <SelectValue placeholder="Load a previous run from Supabase…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {savedRuns.map((run) => (
+                      <SelectItem key={run.id} value={run.id}>
+                        {(run.company_name || "Untitled") +
+                          " · " +
+                          new Date(run.created_at).toLocaleString()}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <Button type="button" variant="outline" onClick={() => void refreshSavedRuns()}>
+                Refresh list
+              </Button>
+            </CardContent>
+          </Card>
+
           <AnalysisForm onAnalyze={handleAnalysis} isLoading={isAnalyzing} />
 
           {isAnalyzing && (

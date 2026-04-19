@@ -9,6 +9,9 @@ import openai
 from dotenv import load_dotenv
 load_dotenv()
 
+# Default model for OpenAI API + autogen env fallback (keep in sync with OAI_CONFIG_LIST when used).
+DEFAULT_OPENAI_MODEL = "gpt-5.4-nano"
+
 # --- LLM Configuration ---
 try:
     config_list = autogen.config_list_from_json("OAI_CONFIG_LIST")
@@ -17,7 +20,7 @@ except (FileNotFoundError, ValueError):
     print("Warning: OAI_CONFIG_LIST not found or invalid. Using environment variables.")
     try:
         config_list = autogen.config_list_from_models(
-            model_list=["gpt-3.5-turbo", "gpt-4"],
+            model_list=[DEFAULT_OPENAI_MODEL],
         )
         llm_config = {"config_list": config_list, "temperature": 0}
     except Exception as e:
@@ -32,7 +35,7 @@ def get_llm_response(prompt):
         raise RuntimeError("OPENAI_API_KEY environment variable not set.")
     client = openai.OpenAI(api_key=api_key)
     response = client.chat.completions.create(
-        model="gpt-4o",  # or "gpt-4" or "gpt-3.5-turbo" as appropriate
+        model=DEFAULT_OPENAI_MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.1,
     )

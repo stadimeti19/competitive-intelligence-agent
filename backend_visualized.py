@@ -61,7 +61,7 @@ def create_revenue_chart(revenue_data, company_input, industry):
             
             plt.text(i, revenue * 1.1, label, ha='center', va='bottom', fontweight='bold', fontsize=10)
         
-        plt.tight_layout()
+        plt.subplots_adjust(bottom=0.22, top=0.92)
         plt.savefig('coding/revenue_comparison.png', dpi=300, bbox_inches='tight')
         plt.close()
         return 'coding/revenue_comparison.png'
@@ -84,7 +84,7 @@ def create_market_share_chart(market_share_data, company_input, industry):
             wedges[i].set_linewidth(3)
     plt.title(f'Market Share Distribution - {industry}', fontsize=16, fontweight='bold')
     plt.axis('equal')
-    plt.tight_layout()
+    plt.subplots_adjust(top=0.92)
     plt.savefig('coding/market_share.png', dpi=300, bbox_inches='tight')
     plt.close()
     return 'coding/market_share.png'
@@ -104,7 +104,7 @@ def create_pricing_model_chart(df, company_input, industry):
     plt.grid(axis='y', alpha=0.3)
     for i, count in enumerate(counts):
         plt.text(i, count + 0.1, str(count), ha='center', va='bottom', fontweight='bold')
-    plt.tight_layout()
+    plt.subplots_adjust(bottom=0.22, top=0.9)
     plt.savefig('coding/pricing_models.png', dpi=300, bbox_inches='tight')
     plt.close()
     return 'coding/pricing_models.png'
@@ -133,7 +133,7 @@ def create_feature_matrix_chart(df, company_input, industry):
     cbar = plt.colorbar(im, ticks=[0, 1])
     cbar.set_ticklabels(['Not Available', 'Available'])
     plt.title(f'Feature Availability Matrix - {industry}', fontsize=16, fontweight='bold')
-    plt.tight_layout()
+    plt.subplots_adjust(left=0.12, right=0.92, bottom=0.2, top=0.92)
     plt.savefig('coding/feature_matrix.png', dpi=300, bbox_inches='tight')
     plt.close()
     return 'coding/feature_matrix.png'

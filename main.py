@@ -1,4 +1,8 @@
-from fastapi import FastAPI, Request
+from dotenv import load_dotenv
+
+load_dotenv()
+
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import os
@@ -7,8 +11,17 @@ import numpy as np
 from tools.ci_tools import *
 from backend_visualized import run_ci_analysis
 from fastapi.responses import FileResponse
+import supabase_store
 
 app = FastAPI()
+
+# Chart keys from the frontend -> filenames produced under coding/
+CHART_TYPE_FILES = {
+    "revenue": "revenue_comparison.png",
+    "market_share": "market_share.png",
+    "pricing_models": "pricing_models.png",
+    "feature_matrix": "feature_matrix.png",
+}
 
 app.add_middleware(
     CORSMiddleware,
@@ -86,18 +99,48 @@ async def analyze(request: Request):
                         })
         except Exception as e:
             print(f"Error parsing CSV: {e}")
-    
+
+    run_id, summary_out = supabase_store.save_run(
+        data, report, competitors, features, pricing, log
+    )
+
     return {
-        "summary": report,
+        "summary": summary_out,
         "competitors": competitors,
         "features": features,
         "pricing": pricing,
         "log": log,
+        "runId": run_id,
+        "persisted": run_id is not None,
     }
+
+
+@app.get("/runs")
+async def list_analysis_runs():
+    return {"runs": supabase_store.list_runs()}
+
+
+@app.get("/runs/{run_id}")
+async def get_analysis_run(run_id: str):
+    row = supabase_store.get_run(run_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return {
+        "summary": row.get("summary"),
+        "competitors": row.get("competitors") or [],
+        "features": row.get("features") or [],
+        "pricing": row.get("pricing") or [],
+        "log": row.get("log"),
+        "runId": row.get("id"),
+        "persisted": True,
+        "input": row.get("input"),
+    }
+
 
 @app.get("/charts/{chart_type}")
 async def get_chart(chart_type: str):
-    chart_path = f"coding/{chart_type}.png"
+    filename = CHART_TYPE_FILES.get(chart_type, f"{chart_type}.png")
+    chart_path = os.path.join("coding", filename)
     if os.path.exists(chart_path):
         return FileResponse(chart_path)
     return {"error": "Chart not found"}

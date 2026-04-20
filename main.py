@@ -12,6 +12,8 @@ from tools.ci_tools import *
 from backend_visualized import run_ci_analysis
 from fastapi.responses import FileResponse
 import supabase_store
+from radar.models import Thesis
+from radar.service import radar_response_payload, run_radar_analysis
 
 app = FastAPI()
 
@@ -134,6 +136,35 @@ async def get_analysis_run(run_id: str):
         "runId": row.get("id"),
         "persisted": True,
         "input": row.get("input"),
+    }
+
+
+@app.post("/radar/analyze")
+async def radar_analyze(thesis: Thesis):
+    """Thesis-driven radar: CompanyEnrich + DDG, deterministic scores. Does not use /analyze."""
+    try:
+        cfg, companies, run_id = run_radar_analysis(thesis)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return radar_response_payload(thesis, cfg, companies, run_id)
+
+
+@app.get("/radar/runs")
+async def list_radar_runs(limit: int = 50):
+    return {"runs": supabase_store.list_radar_runs(limit=limit)}
+
+
+@app.get("/radar/runs/{run_id}")
+async def get_radar_run(run_id: str):
+    row = supabase_store.get_radar_run(run_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Radar run not found")
+    return {
+        "runId": row.get("id"),
+        "persisted": True,
+        "thesis": row.get("input"),
+        "scoringConfig": row.get("scoring_config_snapshot"),
+        "companies": row.get("results") or [],
     }
 
 

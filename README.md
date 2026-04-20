@@ -1,74 +1,140 @@
 # Competitive Intelligence Assistant
 
-A powerful competitive intelligence agent with a modern React frontend and Python FastAPI backend. It performs comprehensive market analysis and competitor research using LLMs, web scraping, and dynamic data extraction.
+This project now supports two parallel workflows:
 
-## Features
+- **Classic CI Report flow** (`/analyze`): agent-driven competitive intelligence reports.
+- **Thesis Radar flow** (`/radar/analyze`): deterministic, structured opportunity ranking against a thesis.
 
-- **Automated Research:** Enter a company name or business idea and get a full CI report.
-- **Competitor Identification:** Finds real, up-to-date competitors in any industry.
-- **Data Collection:** Gathers company overviews, features, pricing, market share, revenue, and more.
-- **Analysis & Synthesis:** Generates executive summaries, feature matrices, pricing tables, market positioning, SWOT, and recommendations.
-- **Modern UI:** Interactive, business-friendly dashboard built with React, Tailwind, and shadcn-ui.
+The classic flow is preserved as-is, and radar is an additive extension.
 
-## How to Run
+## Core Features
 
-### 1. **Backend (FastAPI + Python)**
+- **Classic CI reports:** competitor discovery, feature/pricing matrix, charts, recommendations.
+- **Thesis-driven radar:** submit a thesis, discover companies, enrich with structured data, score with explainable components, and label fit (`strong` / `mixed` / `weak`).
+- **Saved runs:** optional Supabase persistence for both CI and radar runs.
 
-Install Python dependencies:
+## Architecture at a Glance
+
+- **Backend:** FastAPI (`main.py`)
+  - Classic: `POST /analyze`, `GET /runs`, `GET /runs/{id}`, chart endpoints
+  - Radar: `POST /radar/analyze`, `GET /radar/runs`, `GET /radar/runs/{id}`
+- **Frontend:** React + Vite (`frontend/`)
+  - Dashboard for classic CI
+  - Radar page for thesis ranking (`/radar`)
+- **Radar modules:** `radar/`
+  - `models.py` for typed contracts
+  - `enrichment.py` + `sources/` for CompanyEnrich/DDG/Massive adapters
+  - `scoring.py` for deterministic score breakdown
+
+## Setup
+
+### 1) Backend (FastAPI + Python)
+
+Install dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
 
-Install Playwright (for dynamic scraping):
+Optional for classic CI dynamic scraping:
+
 ```bash
 pip install playwright
 playwright install
 ```
 
-Start the backend API:
+Start API server:
+
 ```bash
 uvicorn main:app --reload
 ```
-- The backend will run at http://localhost:8000 (or similar)
 
-### 2. **Frontend (React + Vite)**
+Backend runs at `http://localhost:8000` by default.
 
-Install Node.js dependencies:
+### 2) Frontend (React + Vite)
+
 ```bash
 cd frontend
 npm install
-```
-
-Start the React development server:
-```bash
 npm run dev
 ```
-- The frontend will run at http://localhost:5173 (or similar)
 
-### 3. **Usage**
-- Open the frontend in your browser.
-- Enter a company name, industry, and other details.
-- Click "Start Analysis" to generate a full CI report.
-- View executive summary, competitor cards, feature matrix, pricing, and more.
+Frontend runs at `http://localhost:5173` by default.
 
-## API Contract
-- The frontend sends a POST request to `/analyze` with the form data.
-- The backend returns a structured JSON with summary, competitors, features, pricing, and logs.
+## Environment Variables
 
-## Technologies Used
-- **Frontend:** React, Vite, TypeScript, Tailwind CSS, shadcn-ui
-- **Backend:** FastAPI, Python, Pandas, Playwright, LLMs (OpenAI), DuckDuckGo Search
+Set these in `.env` (loaded by backend via `python-dotenv`):
 
-## Notes
-- Streamlit is no longer used. All UI is handled by the React app.
-- For production, set proper CORS and API keys.
+### Required for radar analysis
 
-## Example Workflow
-1. User enters "Netflix" and selects "Streaming" as industry.
-2. Frontend sends request to backend.
-3. Backend runs agent, scrapes data, generates report.
-4. Frontend displays interactive dashboard with all results.
+- `COMPANYENRICH_API_KEY` - required for company discovery/enrichment in radar.
 
----
+### Optional for radar enrichment
 
-For further customization or deployment, see the code comments or ask for help!
+- `MASSIVE_API_KEY` - optional; enables public-company ticker overview enrichment.
+- `MASSIVE_API_BASE` - optional override (defaults to `https://api.massive.com`).
+
+### Optional for persistence/history
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+If Supabase is not configured, runs still execute; response includes `persisted: false`.
+
+### Classic CI / LLM flow
+
+- `OPENAI_API_KEY` and/or `OAI_CONFIG_LIST` as needed for AutoGen-based classic analysis.
+
+## Usage
+
+### Classic CI Report
+
+1. Open `/` in the frontend.
+2. Fill company/industry fields and run analysis.
+3. Review summary, competitors, feature/pricing tables, and charts.
+
+### Thesis Radar
+
+1. Open `/radar` in the frontend.
+2. Enter a thesis, optional include/exclude keywords, and max companies.
+3. Run radar and inspect ranked companies with score breakdown components.
+
+## Radar Scoring Notes
+
+Radar scoring is intentionally deterministic and explainable:
+
+- `keyword_overlap`
+- `news_signal`
+- `exclusion_clear`
+- `data_completeness`
+
+`keyword_overlap` recall uses company profile text plus DDG news text (and optional scoring-only extra corpus from Massive overview).  
+`exclusion_clear` intentionally uses only core company corpus (not appended news/extra text).
+
+## API Summary
+
+### Classic CI
+
+- `POST /analyze`
+- `GET /runs`
+- `GET /runs/{run_id}`
+
+### Radar
+
+- `POST /radar/analyze`
+- `GET /radar/runs`
+- `GET /radar/runs/{run_id}`
+
+## Testing
+
+Run radar tests:
+
+```bash
+python -m pytest radar/tests -v
+```
+
+Run frontend build validation:
+
+```bash
+cd frontend && npm run build
+```

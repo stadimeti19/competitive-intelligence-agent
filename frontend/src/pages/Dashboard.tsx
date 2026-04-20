@@ -18,6 +18,7 @@ import {
 import { Download, FileText, BarChart3, History } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import axios from "axios";
+import { Link } from "react-router-dom";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
@@ -188,13 +189,18 @@ export const Dashboard = () => {
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground mb-2">
-            Competitive Intelligence Dashboard
-          </h1>
-          <p className="text-muted-foreground">
-            Analyze your competition and discover market opportunities
-          </p>
+        <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-foreground mb-2">
+              Competitive Intelligence Dashboard
+            </h1>
+            <p className="text-muted-foreground">
+              Analyze your competition and discover market opportunities
+            </p>
+          </div>
+          <Button variant="outline" asChild>
+            <Link to="/radar">Thesis opportunity radar</Link>
+          </Button>
         </div>
 
         <div className="space-y-8">

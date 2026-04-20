@@ -119,3 +119,57 @@ def get_run(run_id: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         print(f"[supabase_store] get_run failed: {e}")
         return None
+
+
+def save_radar_run(
+    input_data: Dict[str, Any],
+    scoring_config_snapshot: Dict[str, Any],
+    results: List[Dict[str, Any]],
+) -> Optional[str]:
+    """Insert one radar run. Returns run_id or None if Supabase unavailable or insert fails."""
+    client = _client()
+    if not client:
+        return None
+    run_id = str(uuid.uuid4())
+    row = {
+        "id": run_id,
+        "input": input_data,
+        "scoring_config_snapshot": scoring_config_snapshot,
+        "results": results,
+    }
+    try:
+        client.table("radar_runs").insert(row).execute()
+        return run_id
+    except Exception as e:
+        print(f"[supabase_store] save_radar_run failed: {e}")
+        return None
+
+
+def list_radar_runs(limit: int = 50) -> List[Dict[str, Any]]:
+    client = _client()
+    if not client:
+        return []
+    try:
+        r = (
+            client.table("radar_runs")
+            .select("id, created_at")
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return r.data or []
+    except Exception as e:
+        print(f"[supabase_store] list_radar_runs failed: {e}")
+        return []
+
+
+def get_radar_run(run_id: str) -> Optional[Dict[str, Any]]:
+    client = _client()
+    if not client:
+        return None
+    try:
+        r = client.table("radar_runs").select("*").eq("id", run_id).single().execute()
+        return r.data
+    except Exception as e:
+        print(f"[supabase_store] get_radar_run failed: {e}")
+        return None

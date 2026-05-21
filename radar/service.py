@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import supabase_store
 from radar.enrichment import build_profiles_for_thesis
+from radar.evidence import build_evidence, compute_confidence, extract_claims
 from radar.models import RadarCompanyResult, ScoringConfig, Thesis
 from radar.scoring import default_scoring_config, merge_scoring_config, score_company
 
@@ -27,7 +28,19 @@ def run_radar_analysis(thesis: Thesis) -> Tuple[ScoringConfig, List[RadarCompany
     scored.sort(key=lambda x: -x[0])
     companies: List[RadarCompanyResult] = []
     for rank, (_, p, bd) in enumerate(scored, start=1):
-        companies.append(RadarCompanyResult(rank=rank, profile=p, score_breakdown=bd))
+        evidence = build_evidence(thesis, p)
+        confidence = compute_confidence(thesis, p, bd, evidence)
+        claims = extract_claims(thesis, p, evidence)
+        companies.append(
+            RadarCompanyResult(
+                rank=rank,
+                profile=p,
+                score_breakdown=bd,
+                evidence=evidence,
+                claims=claims,
+                confidence=confidence,
+            )
+        )
 
     input_snapshot: Dict[str, Any] = thesis.model_dump()
     scoring_snapshot: Dict[str, Any] = cfg.model_dump()

@@ -301,6 +301,7 @@ export const Dashboard = () => {
               <FeatureMatrix 
                 competitors={competitors.map(c => c.name)} 
                 features={features} 
+                competitorDetails={competitors}
               />
 
               <PricingTable pricingData={pricing} />

@@ -14,9 +14,13 @@ def _client():
     key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
     if not url or not key:
         return None
-    from supabase import create_client
+    try:
+        from supabase import create_client
 
-    return create_client(url, key)
+        return create_client(url, key)
+    except Exception as e:
+        print(f"[supabase_store] Supabase client unavailable: {e}")
+        return None
 
 
 def is_configured() -> bool:

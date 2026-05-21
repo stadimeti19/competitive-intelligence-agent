@@ -16,6 +16,14 @@ class ThesisFit(str, Enum):
     weak = "weak"
 
 
+class ConfidenceLevel(str, Enum):
+    """How much to trust the fit assessment, separate from fit quality."""
+
+    high = "high"
+    medium = "medium"
+    low = "low"
+
+
 class Thesis(BaseModel):
     """User thesis input; persisted as JSON snapshot on each run."""
 
@@ -79,6 +87,37 @@ class ScoreBreakdown(BaseModel):
     thesis_fit: ThesisFit
 
 
+class EvidenceItem(BaseModel):
+    """Source-grounded snippet used to support radar scoring or extracted claims."""
+
+    id: str
+    provider: str  # "companyenrich" | "ddg" | "massive"
+    source_type: str  # "profile" | "news" | "ticker_overview"
+    title: str = ""
+    url: str = ""
+    snippet: str = ""
+    matched_terms: List[str] = Field(default_factory=list)
+
+
+class ExtractedClaim(BaseModel):
+    """Typed claim extracted from evidence, with source references by evidence id."""
+
+    claim: str
+    category: str = "market_signal"
+    evidence_ids: List[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class ConfidenceBreakdown(BaseModel):
+    """Trust metrics for a ranking; kept separate from the fit score."""
+
+    fit_score: float = Field(..., ge=0.0, le=1.0)
+    evidence_strength: float = Field(..., ge=0.0, le=1.0)
+    data_completeness: float = Field(..., ge=0.0, le=1.0)
+    contradiction_score: float = Field(..., ge=0.0, le=1.0)
+    confidence_level: ConfidenceLevel
+
+
 class ScoringConfig(BaseModel):
     """
     Weights for four components (must sum to 1.0).
@@ -105,6 +144,9 @@ class RadarCompanyResult(BaseModel):
     rank: int
     profile: CompanyProfile
     score_breakdown: ScoreBreakdown
+    evidence: List[EvidenceItem] = Field(default_factory=list)
+    claims: List[ExtractedClaim] = Field(default_factory=list)
+    confidence: Optional[ConfidenceBreakdown] = None
 
 
 class RadarRunResults(BaseModel):

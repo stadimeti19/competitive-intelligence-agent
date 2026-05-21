@@ -37,7 +37,8 @@ def _sample_profiles():
 
 @patch("radar.service.supabase_store.save_radar_run", return_value="radar-run-id")
 @patch("radar.service.build_profiles_for_thesis")
-def test_radar_analyze_returns_ranked_companies(mock_build, mock_save, client):
+def test_radar_analyze_returns_ranked_companies(mock_build, mock_save, client, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     mock_build.return_value = _sample_profiles()
     body = {
         "statement": "AI devtools for compliance teams",
@@ -54,6 +55,11 @@ def test_radar_analyze_returns_ranked_companies(mock_build, mock_save, client):
     assert len(comps) == 2
     assert comps[0]["rank"] == 1
     assert comps[0]["score_breakdown"]["total"] >= comps[1]["score_breakdown"]["total"]
+    assert comps[0]["evidence"]
+    assert comps[0]["confidence"]["fit_score"] == comps[0]["score_breakdown"]["total"]
+    evidence_ids = {item["id"] for item in comps[0]["evidence"]}
+    for claim in comps[0]["claims"]:
+        assert set(claim["evidence_ids"]).issubset(evidence_ids)
     mock_save.assert_called_once()
 
 

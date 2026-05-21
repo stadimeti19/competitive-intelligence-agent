@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Radar } from "lucide-react";
+import { FileSearch, Link2, Loader2, Radar, ShieldCheck } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
@@ -32,6 +32,31 @@ interface ScoreComponent {
   normalized: number;
   weight: number;
   contribution: number;
+}
+
+interface EvidenceItem {
+  id: string;
+  provider: string;
+  source_type: string;
+  title: string;
+  url: string;
+  snippet: string;
+  matched_terms: string[];
+}
+
+interface ExtractedClaim {
+  claim: string;
+  category: string;
+  evidence_ids: string[];
+  confidence: number;
+}
+
+interface ConfidenceBreakdown {
+  fit_score: number;
+  evidence_strength: number;
+  data_completeness: number;
+  contradiction_score: number;
+  confidence_level: "high" | "medium" | "low";
 }
 
 interface RadarCompanyRow {
@@ -47,6 +72,9 @@ interface RadarCompanyRow {
     thesis_fit: string;
     components: ScoreComponent[];
   };
+  evidence: EvidenceItem[];
+  claims: ExtractedClaim[];
+  confidence: ConfidenceBreakdown | null;
 }
 
 interface RadarResponse {
@@ -63,6 +91,22 @@ function parseKeywords(raw: string): string[] {
     .split(/[,;\n]+/)
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+function pct(value: number): string {
+  return `${(value * 100).toFixed(0)}%`;
+}
+
+function confidenceBadgeVariant(level?: string): "default" | "secondary" | "destructive" {
+  if (level === "high") return "default";
+  if (level === "medium") return "secondary";
+  return "destructive";
+}
+
+function evidenceLabel(item: EvidenceItem): string {
+  if (item.source_type === "ticker_overview") return "Ticker overview";
+  if (item.source_type === "news") return "News";
+  return "Company profile";
 }
 
 export const RadarPage = () => {
@@ -211,6 +255,11 @@ export const RadarPage = () => {
                         <span className="text-sm text-muted-foreground">{row.profile.domain}</span>
                       )}
                       <Badge>{row.score_breakdown.thesis_fit}</Badge>
+                      {row.confidence && (
+                        <Badge variant={confidenceBadgeVariant(row.confidence.confidence_level)}>
+                          {row.confidence.confidence_level} confidence
+                        </Badge>
+                      )}
                       <span className="text-sm tabular-nums">
                         score {(row.score_breakdown.total * 100).toFixed(1)}%
                       </span>
@@ -226,6 +275,34 @@ export const RadarPage = () => {
                         {row.profile.industry_tags.join(", ")}
                       </p>
                     )}
+
+                    {row.confidence && (
+                      <div className="mb-4 rounded-md border bg-muted/30 p-3">
+                        <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+                          <ShieldCheck className="h-4 w-4" />
+                          Confidence audit
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+                          <div>
+                            <p className="text-xs text-muted-foreground">Fit score</p>
+                            <p className="font-mono">{pct(row.confidence.fit_score)}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Evidence strength</p>
+                            <p className="font-mono">{pct(row.confidence.evidence_strength)}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Data completeness</p>
+                            <p className="font-mono">{pct(row.confidence.data_completeness)}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Contradiction score</p>
+                            <p className="font-mono">{pct(row.confidence.contradiction_score)}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -252,6 +329,89 @@ export const RadarPage = () => {
                         ))}
                       </TableBody>
                     </Table>
+
+                    <div className="mt-5 space-y-4">
+                      <div>
+                        <h3 className="mb-2 flex items-center gap-2 text-sm font-medium">
+                          <FileSearch className="h-4 w-4" />
+                          Evidence-backed claims
+                        </h3>
+                        {row.claims.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">
+                            No extracted claims were available for this company.
+                          </p>
+                        ) : (
+                          <div className="space-y-2">
+                            {row.claims.map((claim, index) => (
+                              <div key={`${claim.claim}-${index}`} className="rounded-md border p-3">
+                                <div className="mb-2 flex flex-wrap items-center gap-2">
+                                  <Badge variant="secondary">{claim.category}</Badge>
+                                  <span className="text-xs text-muted-foreground">
+                                    confidence {pct(claim.confidence)}
+                                  </span>
+                                </div>
+                                <p className="text-sm">{claim.claim}</p>
+                                {claim.evidence_ids.length > 0 && (
+                                  <p className="mt-2 font-mono text-xs text-muted-foreground">
+                                    evidence: {claim.evidence_ids.join(", ")}
+                                  </p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <h3 className="mb-2 flex items-center gap-2 text-sm font-medium">
+                          <Link2 className="h-4 w-4" />
+                          Source snippets
+                        </h3>
+                        {row.evidence.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">
+                            No source snippets were captured for this company.
+                          </p>
+                        ) : (
+                          <div className="space-y-2">
+                            {row.evidence.map((item) => (
+                              <div key={item.id} className="rounded-md border p-3">
+                                <div className="mb-2 flex flex-wrap items-center gap-2">
+                                  <Badge variant="outline">{item.provider}</Badge>
+                                  <Badge variant="secondary">{evidenceLabel(item)}</Badge>
+                                  <span className="font-mono text-xs text-muted-foreground">
+                                    {item.id}
+                                  </span>
+                                </div>
+                                <p className="text-sm font-medium">
+                                  {item.url ? (
+                                    <a
+                                      href={item.url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="underline-offset-4 hover:underline"
+                                    >
+                                      {item.title || item.url}
+                                    </a>
+                                  ) : (
+                                    item.title
+                                  )}
+                                </p>
+                                <p className="mt-1 text-sm text-muted-foreground">{item.snippet}</p>
+                                {item.matched_terms.length > 0 && (
+                                  <div className="mt-2 flex flex-wrap gap-1">
+                                    {item.matched_terms.map((term) => (
+                                      <Badge key={term} variant="secondary" className="text-xs">
+                                        {term}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </AccordionContent>
                 </AccordionItem>
               ))}

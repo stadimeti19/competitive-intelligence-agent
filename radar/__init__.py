@@ -2,6 +2,10 @@
 
 from radar.models import (
     CompanyProfile,
+    ConfidenceBreakdown,
+    ConfidenceLevel,
+    EvidenceItem,
+    ExtractedClaim,
     NewsHit,
     RadarCompanyResult,
     RadarRunResults,
@@ -15,6 +19,10 @@ from radar.scoring import default_scoring_config, score_company
 
 __all__ = [
     "CompanyProfile",
+    "ConfidenceBreakdown",
+    "ConfidenceLevel",
+    "EvidenceItem",
+    "ExtractedClaim",
     "NewsHit",
     "RadarCompanyResult",
     "RadarRunResults",

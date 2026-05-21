@@ -3,6 +3,7 @@ import io
 import pandas as pd
 import re
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import numpy as np
 from contextlib import redirect_stdout
 from tools.ci_tools import (
@@ -109,29 +110,178 @@ def create_pricing_model_chart(df, company_input, industry):
     plt.close()
     return 'coding/pricing_models.png'
 
-def create_feature_matrix_chart(df, company_input, industry):
-    feature_keywords = [
-        'payment processing', 'api', 'mobile app', 'web dashboard', 
-        'analytics', 'fraud protection', 'multi-currency', 'instant payments',
-        'recurring billing', 'subscription', 'marketplace', 'e-commerce'
-    ]
-    feature_matrix = []
-    competitor_names = []
+FEATURE_DEFINITIONS = [
+    ("AI / Machine Learning", ["ai", "artificial intelligence", "machine learning", "ml", "predictive", "generative ai", "ai agents"]),
+    ("Automation", ["automation", "automated", "workflow automation", "business process automation", "automated workflows"]),
+    ("Analytics / Reporting", ["analytics", "reporting", "dashboard", "insights", "business intelligence", "performance reporting"]),
+    ("Mobile App", ["mobile app", "ios app", "android app", "mobile platform", "mobile access"]),
+    ("Online Dashboard / Portal", ["web dashboard", "online dashboard", "online portal", "client portal", "web platform", "self-service portal"]),
+    ("API / Integrations", ["api", "developer api", "integration", "integrations", "connectors", "third-party connectors", "webhooks"]),
+    ("Security", ["security", "encryption", "sso", "single sign-on", "mfa", "multi-factor authentication", "2fa", "access control"]),
+    ("Compliance / Risk", ["compliance", "risk management", "regulatory", "audit", "governance", "supervision"]),
+    ("Admin Controls", ["admin controls", "administration", "permissions", "roles", "user management", "policy management"]),
+    ("Collaboration", ["collaboration", "team collaboration", "shared workspace", "comments", "mentions"]),
+    ("Communication / Messaging", ["messaging", "chat", "team communication", "instant messaging", "video conferencing", "calling", "meetings"]),
+    ("Document / File Sharing", ["file sharing", "document sharing", "docs", "knowledge base", "content management"]),
+    ("Task / Project Management", ["task management", "project management", "kanban", "to-do", "work management", "deadline", "roadmap"]),
+    ("Workflow Management", ["workflow", "workflow management", "process management", "approval workflow", "business process"]),
+    ("Customer Support", ["customer support", "support ticket", "help desk", "live chat", "service desk", "customer service"]),
+    ("CRM / Sales", ["crm", "sales pipeline", "lead management", "sales automation", "contact management"]),
+    ("Marketing", ["marketing automation", "campaign", "email marketing", "ads", "seo", "content marketing"]),
+    ("E-commerce", ["e-commerce", "ecommerce", "online store", "checkout", "cart", "marketplace"]),
+    ("Payments", ["payment processing", "online payments", "instant payments", "settlement", "billing", "invoicing"]),
+    ("Subscription / Billing", ["subscription", "recurring billing", "billing", "pricing tiers", "usage-based pricing"]),
+    ("Inventory / Operations", ["inventory", "stock auditing", "supply chain", "operations", "asset management", "field service"]),
+    ("HR / People", ["hr", "human resources", "employee", "payroll", "recruiting", "onboarding", "workforce"]),
+    ("Education / Learning", ["education", "learning management", "lms", "courses", "training", "students"]),
+    ("Healthcare", ["healthcare", "clinical", "patient", "ehr", "emr", "medical", "care management"]),
+    ("Developer Tools", ["developer tools", "devtools", "sdk", "cli", "code", "deployment", "developer platform"]),
+    ("Data Platform", ["data platform", "data warehouse", "data lake", "etl", "data pipeline", "database"]),
+    ("Cloud / Infrastructure", ["cloud", "infrastructure", "hosting", "kubernetes", "serverless", "devops"]),
+    ("Open Source / Self Hosted", ["open-source", "open source", "self-hosted", "self hosted", "on-premise", "on premise"]),
+    ("Enterprise Features", ["enterprise", "enterprise-grade", "scalable", "governance", "sla", "dedicated support"]),
+    ("Investment Management", ["investment management", "asset management", "managed portfolio", "portfolio management"]),
+    ("Brokerage / Trading", ["brokerage", "stock trading", "trading platform", "trade stocks", "securities trading", "self-directed investing"]),
+    ("Retirement Planning", ["retirement", "401k", "401 k", "ira", "pension", "retirement account"]),
+    ("Wealth Advisory", ["wealth management", "financial advisor", "financial advisory", "advisory services", "advisor network"]),
+    ("Mutual Funds", ["mutual fund", "mutual funds", "fund family"]),
+    ("ETFs", ["etf", "exchange traded fund", "exchange-traded fund"]),
+    ("Research & Market Data", ["research", "market data", "analyst research", "investment research", "screeners"]),
+    ("Financial Planning Tools", ["financial planning", "planning tools", "goal planning", "retirement calculator", "portfolio analysis"]),
+    ("Mobile App", ["mobile app", "ios app", "android app", "mobile investing", "mobile banking"]),
+    ("Online Dashboard / Portal", ["web dashboard", "online dashboard", "online portal", "client portal", "web platform", "online account"]),
+    ("Tax Planning", ["tax planning", "tax optimization", "tax-loss harvesting", "tax loss harvesting"]),
+    ("Cash Management", ["cash management", "sweep account", "money market", "banking services"]),
+    ("Banking", ["banking", "bank account", "checking account", "savings account"]),
+    ("Credit Cards", ["credit card", "credit cards"]),
+    ("Fraud Protection", ["fraud protection", "fraud detection", "fraud monitoring", "account protection"]),
+    ("Cryptocurrency", ["cryptocurrency", "crypto", "digital assets", "bitcoin"]),
+]
+
+GENERIC_FEATURE_WORDS = {
+    "features",
+    "platform",
+    "solution",
+    "services",
+    "products",
+    "capabilities",
+    "support",
+    "including",
+    "include",
+    "offers",
+    "provides",
+    "strong",
+    "broad",
+    "advanced",
+    "enterprise",
+}
+
+
+def _normalize_feature_text(value):
+    value = "" if value is None or pd.isna(value) else str(value)
+    value = value.lower().replace("&", " and ")
+    value = re.sub(r"[^a-z0-9]+", " ", value)
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _feature_status(text, terms):
+    if not text or text == "n a" or "information not available" in text:
+        return 0.5
+    normalized_terms = [_normalize_feature_text(t) for t in terms]
+    if any(term and term in text for term in normalized_terms):
+        return 1.0
+    for term in normalized_terms:
+        if not term:
+            continue
+        negative_patterns = [
+            f"no {term}",
+            f"without {term}",
+            f"does not offer {term}",
+            f"not offer {term}",
+            f"{term} not available",
+            f"{term} unavailable",
+        ]
+        if any(p in text for p in negative_patterns):
+            return 0.0
+    return 0.5
+
+
+def _title_case_feature(value):
+    return " ".join(word.capitalize() for word in value.split())
+
+
+def _dynamic_feature_definitions(df):
+    chunks = []
     for _, row in df.iterrows():
-        competitor_names.append(row['name'])
-        features = row.get('key_features', '').lower()
+        source = " ".join(str(row.get(col, "")) for col in ["key_features", "market_position"])
+        chunks.extend(re.split(r"[.;:|()\n]+|,\s+|\s+plus\s+|\s+and\s+", source, flags=re.I))
+
+    counts = {}
+    for chunk in chunks:
+        words = [
+            word
+            for word in _normalize_feature_text(chunk).split()
+            if word not in GENERIC_FEATURE_WORDS
+        ]
+        if len(words) < 2 or len(words) > 5:
+            continue
+        phrase = " ".join(words)
+        if len(phrase) < 8 or len(phrase) > 60:
+            continue
+        counts[phrase] = counts.get(phrase, 0) + 1
+
+    existing_terms = {_normalize_feature_text(term) for _, terms in FEATURE_DEFINITIONS for term in terms}
+    ranked = sorted(
+        ((phrase, count) for phrase, count in counts.items() if count >= 2 and phrase not in existing_terms),
+        key=lambda item: (-item[1], item[0]),
+    )
+    return [(_title_case_feature(phrase), [phrase]) for phrase, _ in ranked[:10]]
+
+
+def create_feature_matrix_chart(df, company_input, industry):
+    competitor_names = []
+    company_texts = []
+    for _, row in df.iterrows():
+        competitor_names.append(str(row.get('name', 'Unknown')))
+        company_texts.append(
+            _normalize_feature_text(
+                " ".join(
+                    str(row.get(col, ""))
+                    for col in [
+                        "key_features",
+                        "market_position",
+                        "target_audience",
+                        "pricing_model",
+                        "pricing_tiers",
+                    ]
+                )
+            )
+        )
+
+    feature_definitions = FEATURE_DEFINITIONS + _dynamic_feature_definitions(df)
+    active_features = []
+    feature_matrix = []
+    for label, terms in feature_definitions:
         feature_row = []
-        for feature in feature_keywords:
-            feature_row.append(1 if feature in features else 0)
-        feature_matrix.append(feature_row)
+        for text in company_texts:
+            feature_row.append(_feature_status(text, terms))
+        if any(v != 0.5 for v in feature_row):
+            active_features.append(label)
+            feature_matrix.append(feature_row)
+
     if not feature_matrix:
         return None
-    plt.figure(figsize=(14, 8))
-    im = plt.imshow(feature_matrix, cmap='RdYlGn', aspect='auto')
-    plt.xticks(range(len(feature_keywords)), [f.replace('-', ' ').title() for f in feature_keywords], rotation=45, ha='right')
+
+    matrix = np.array(feature_matrix).T
+    plt.figure(figsize=(max(12, len(active_features) * 0.65), max(7, len(competitor_names) * 0.55)))
+    cmap = mcolors.ListedColormap(["#ef4444", "#d1d5db", "#22c55e"])
+    bounds = [-0.25, 0.25, 0.75, 1.25]
+    norm = mcolors.BoundaryNorm(bounds, cmap.N)
+    im = plt.imshow(matrix, cmap=cmap, norm=norm, aspect='auto')
+    plt.xticks(range(len(active_features)), active_features, rotation=45, ha='right')
     plt.yticks(range(len(competitor_names)), competitor_names)
-    cbar = plt.colorbar(im, ticks=[0, 1])
-    cbar.set_ticklabels(['Not Available', 'Available'])
+    cbar = plt.colorbar(im, ticks=[0, 0.5, 1])
+    cbar.set_ticklabels(['Explicitly Unavailable', 'Not Found in Sources', 'Available'])
     plt.title(f'Feature Availability Matrix - {industry}', fontsize=16, fontweight='bold')
     plt.subplots_adjust(left=0.12, right=0.92, bottom=0.2, top=0.92)
     plt.savefig('coding/feature_matrix.png', dpi=300, bbox_inches='tight')
